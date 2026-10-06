@@ -23,10 +23,9 @@ export default function PublicDemo() {
     event.preventDefault();
     const content = input.trim();
     if (!content || busy || !status?.enabled) return;
-    let history = [...messages, { role: 'user', content }].slice(-9);
+    let history = [...messages.filter(m => m.content.trim()), { role: 'user', content }].slice(-9).map(m => ({ ...m, content: m.content.slice(0, 2000) }));
     // Keep complete recent exchanges within the server's bounded context.
     while (history.length > 1 && history.reduce((n, m) => n + m.content.length, 0) > 8000) history = history.slice(2);
-    history = history.map(m => ({ ...m, content: m.content.slice(0, 2000) }));
     setMessages([...history, { role: 'assistant', content: '' }]);
     setInput('');
     setBusy(true);
@@ -48,7 +47,7 @@ export default function PublicDemo() {
         while (!completed) {
           const { value, done } = await reader.read();
           if (done) break;
-          buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
+          buffer = (buffer + decoder.decode(value, { stream: true })).replace(/\r\n/g, '\n');
           let split;
           while ((split = buffer.indexOf('\n\n')) >= 0) {
             const block = buffer.slice(0, split);
