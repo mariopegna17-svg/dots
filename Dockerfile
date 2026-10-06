@@ -29,6 +29,7 @@ COPY --from=web /usr/local/bin/node /usr/local/bin/node
 COPY --from=api /opt/venv /opt/venv
 COPY --from=web --chown=dots:dots /build/client/.next/standalone/ ./client/
 COPY --from=web --chown=dots:dots /build/client/.next/static/ ./client/.next/static/
+COPY --from=web --chown=dots:dots /build/client/public/ ./client/public/
 COPY --chown=dots:dots server/app/ ./server/app/
 COPY --chown=dots:dots scripts/production.py ./scripts/production.py
 ENV PATH=/opt/venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \

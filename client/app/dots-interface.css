@@ -95,9 +95,24 @@
 .dot-mascot svg {
   filter: none;
 }
+.mascot-plush {
+  position: relative;
+  overflow: hidden;
+  aspect-ratio: 1;
+}
+.mascot-plush > svg {
+  overflow: hidden;
+}
+.mascot-warning {
+  color: #ffc77e;
+}
+.mascot-warning > svg {
+  width: 70%;
+  height: 70%;
+}
 .chat-empty .mascot-xl {
-  width: 76px;
-  height: 76px;
+  width: 110px;
+  height: 110px;
   margin-bottom: 20px;
 }
 .chat-empty h1 {
@@ -157,8 +172,8 @@
   margin: 6px auto 44px;
 }
 .home-welcome > .dot-mascot {
-  width: 62px;
-  height: 62px;
+  width: 80px;
+  height: 80px;
   margin-bottom: 14px;
 }
 .home-welcome h1 {
@@ -265,8 +280,8 @@
   border-color: #626262;
 }
 .home-dot-card .mascot-xl {
-  width: 70px;
-  height: 70px;
+  width: 98px;
+  height: 98px;
   margin-bottom: 13px;
 }
 .home-dot-card strong {
@@ -611,8 +626,8 @@
   }
   .home-dot-card .mascot-xl,
   .home-new-dot > div {
-    width: 60px;
-    height: 60px;
+    width: 82px;
+    height: 82px;
   }
   .home-dot-card > span:last-child {
     font-size: 9px;
@@ -646,5 +661,77 @@
   }
   .auth-form-section {
     padding: 24px;
+  }
+}
+
+.character-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+.character-option {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  min-width: 0;
+  min-height: 72px;
+  border: 1px solid #414141;
+  background: #252525;
+  border-radius: 12px;
+  text-align: left;
+}
+.character-option:hover {
+  background: #303030;
+}
+.character-option.selected {
+  border-color: var(--character-color, #bfbfbf);
+  background: #303030;
+}
+.character-option .mascot-md {
+  width: 50px;
+  height: 50px;
+}
+.character-option > span:not(.dot-mascot) {
+  color: #cfcfcf;
+  font-size: 11px;
+  line-height: 1.5;
+  min-width: 0;
+}
+.character-option > svg {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 10px;
+  height: 10px;
+  color: #ededed;
+}
+.create-preview {
+  height: 168px;
+}
+.create-preview .mascot-hero {
+  width: 180px;
+  height: 180px;
+}
+@media (max-width: 767px) {
+  .character-option {
+    padding: 7px;
+    gap: 5px;
+  }
+  .character-option .mascot-md {
+    width: 44px;
+    height: 44px;
+  }
+  .character-option > span:not(.dot-mascot) {
+    font-size: 10px;
+  }
+  .create-preview .mascot-hero {
+    width: 150px;
+    height: 150px;
+  }
+  .create-preview {
+    height: 145px;
   }
 }

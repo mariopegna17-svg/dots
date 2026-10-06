@@ -2,13 +2,12 @@
 import { useState } from "react";
 import { FiArrowUpRight, FiCheck, FiX } from "react-icons/fi";
 import Modal from "./Modal";
-import MascotAvatar from "./MascotAvatar";
+import MascotAvatar, { DOT_CHARACTERS } from "./MascotAvatar";
 
-const tones = ["lime", "orange", "mint", "lavender", "blue", "pink"];
 export default function CreateDotDialog({ defaultModel, onCreate, onClose }) {
   const [name, setName] = useState("");
   const [role, setRole] = useState("");
-  const [tone, setTone] = useState("lime");
+  const [tone, setTone] = useState("blue");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   async function submit(event) {
@@ -51,7 +50,6 @@ export default function CreateDotDialog({ defaultModel, onCreate, onClose }) {
       </div>
       <div className={`create-preview tone-${tone}`}>
         <MascotAvatar type={tone} size="hero" />
-        <span className="create-preview-orbit" />
       </div>
       <h2 id="create-dot-title" className="dialog-title">
         Dale vida a tu Dot.
@@ -84,19 +82,21 @@ export default function CreateDotDialog({ defaultModel, onCreate, onClose }) {
           />
         </label>
         <fieldset>
-          <legend className="field-label">Elige su color</legend>
-          <div className="color-options">
-            {tones.map((color) => (
+          <legend className="field-label">Elige su personaje</legend>
+          <div className="character-options">
+            {DOT_CHARACTERS.map(({ id, label, color }) => (
               <button
-                key={color}
+                key={id}
                 type="button"
-                aria-label={`Color ${color}`}
-                aria-pressed={tone === color}
-                onClick={() => setTone(color)}
-                className={`color-option tone-${color} ${tone === color ? "selected" : ""}`}
+                aria-label={label}
+                aria-pressed={tone === id}
+                onClick={() => setTone(id)}
+                className={`character-option ${tone === id ? "selected" : ""}`}
+                style={{ "--character-color": color }}
               >
-                <span />
-                {tone === color && <FiCheck />}
+                <MascotAvatar type={id} size="md" />
+                <span>{label}</span>
+                {tone === id && <FiCheck />}
               </button>
             ))}
           </div>
