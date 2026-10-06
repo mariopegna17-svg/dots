@@ -9,6 +9,22 @@ La integración usa tu modelo de NVIDIA para responder y Twilio para telefonía,
 3. Para WhatsApp, abre el [Sandbox de Twilio](https://www.twilio.com/docs/whatsapp/sandbox). Desde tu WhatsApp, envía al número del Sandbox el código `join` que aparece en el panel. Añade ese número a la configuración de Dots. También puedes usar un remitente de WhatsApp aprobado.
 4. En “When a message comes in”, configura por **POST** la URL que muestra Dots, terminada en `/api/v1/communications/webhooks/whatsapp`.
 5. Elige el Dot que responderá por WhatsApp, activa la conexión y guarda. Envía un WhatsApp de texto desde tu número para empezar. En la web puedes revisar y confirmar una llamada o un mensaje; desde el chat, las herramientas `call_owner` y `whatsapp_owner` aparecen cuando el canal está configurado y requieren aprobación.
+6. Pulsa **Comprobar conexión**. Comprueba las credenciales contra Twilio, el remitente de voz, la verificación del destinatario si tu cuenta es Trial y la URL pública. Este botón no llama ni envía mensajes. Usa **Copiar diagnóstico** para compartir los resultados sin credenciales.
+
+## Cuando no funciona
+
+Rellenar los campos no verifica que Twilio acepte la cuenta ni los números. **Comprobar conexión** muestra el problema concreto. Usa el **Account SID y Auth Token reales** de tu cuenta: una cuenta Trial con crédito de prueba funciona, pero las *Test Credentials* de la API solo simulan solicitudes y nunca realizan llamadas ni entregan WhatsApp.
+
+- **20003**: las credenciales no pertenecen a la misma cuenta o no son válidas.
+- **21215**: activa el país de destino en Voice → Geo Permissions.
+- **21219**: verifica tu teléfono en Verified Caller IDs para llamar desde una cuenta Trial.
+- **63007**: el número de WhatsApp no es el remitente de esa cuenta.
+- **63015**: envía desde tu WhatsApp el código `join` del Sandbox; la adhesión puede caducar y necesitar repetirse.
+- **63016**: escribe primero desde tu WhatsApp al Sandbox para abrir la ventana de 24 horas.
+
+La URL debe ser el origen HTTPS (por ejemplo, `https://dots-uz0g.onrender.com`). Si pegas el enlace terminado en `/app`, Dots elimina esa ruta. Guarda la URL del webhook de WhatsApp en Twilio Sandbox Settings → When a message comes in → **POST**. Tener el webhook visible en Dots no lo registra automáticamente en Twilio.
+
+**Últimas comunicaciones** se actualiza cada cuatro segundos. Las llamadas muestran si el teléfono está sonando, ocupado, no contesta o se ha conectado. WhatsApp muestra enviado, entregado, leído o el error que impide la entrega. Estos estados llegan por callbacks firmados de Twilio; una solicitud aceptada todavía no implica entrega.
 
 ## Comportamiento y límites
 
@@ -22,7 +38,7 @@ La integración usa tu modelo de NVIDIA para responder y Twilio para telefonía,
 
 ## Variables de entorno opcionales
 
-También puedes configurar el servidor con `COMMUNICATIONS_ENABLED=1`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `OWNER_PHONE_NUMBER`, `TWILIO_VOICE_NUMBER`, `TWILIO_WHATSAPP_NUMBER`, `COMMUNICATION_BOT_ID` y `COMMUNICATION_PUBLIC_URL`. La URL se deduce de `PUBLIC_APP_URL` o `RENDER_EXTERNAL_URL` si están configuradas con HTTPS. Los ajustes guardados en la web prevalecen sobre estas variables. Nunca subas las credenciales al repositorio.
+También puedes configurar el servidor con `COMMUNICATIONS_ENABLED=1`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `OWNER_PHONE_NUMBER`, `TWILIO_VOICE_NUMBER`, `TWILIO_WHATSAPP_NUMBER`, `COMMUNICATION_BOT_ID` y `COMMUNICATION_PUBLIC_URL`. La URL se deduce de `PUBLIC_APP_URL` o `RENDER_EXTERNAL_URL` si están configuradas con HTTPS, también cuando se guardó una URL vacía en la web. Si no seleccionas un Dot, se usa el primero. Los demás ajustes guardados en la web prevalecen sobre estas variables. Nunca subas las credenciales al repositorio.
 
 Los servicios externos no se han activado ni se han realizado llamadas o envíos reales durante las pruebas del código.
 

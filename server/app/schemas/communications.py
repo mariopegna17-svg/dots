@@ -15,6 +15,14 @@ class CommunicationSettings(BaseModel):
     communication_public_url: str = ""
     twilio_auth_token_configured: bool = False
 
+    @field_validator("twilio_auth_token")
+    @classmethod
+    def auth_token(cls, value):
+        value = value.strip()
+        if value.startswith("nvapi-"):
+            raise ValueError("Aquí necesitas el Auth Token de Twilio, no la clave de NVIDIA.")
+        return value
+
     @field_validator("owner_phone_number", "twilio_voice_number", "twilio_whatsapp_number")
     @classmethod
     def phone_number(cls, value):
@@ -37,6 +45,9 @@ class CommunicationSettings(BaseModel):
         value = value.strip().rstrip("/")
         if value:
             url = urlsplit(value)
+            if url.path == "/app" and not url.query and not url.fragment:
+                value = f"{url.scheme}://{url.netloc}"
+                url = urlsplit(value)
             if url.scheme != "https" or not url.hostname or url.username or url.password or url.query or url.fragment or url.path:
                 raise ValueError("Introduce la URL HTTPS pública de tu aplicación, sin rutas ni parámetros.")
         return value

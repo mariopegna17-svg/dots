@@ -70,7 +70,7 @@ Comprueba también `/api/v1/health`, el formulario de acceso, guardar y borrar u
 
 La búsqueda utiliza `api.you.com/mcp` mediante el perfil gratuito sin clave. `YDC_API_KEY` permite usar el servicio autenticado; disponibilidad y límites dependen de You.com. Los conectores heredados usan Composio y requieren `COMPOSIO_API_KEY` y los permisos/OAuth de cada cuenta. Ninguna cuenta externa está conectada automáticamente. Su catálogo no significa que todas las acciones de cada aplicación estén implementadas.
 
-No incluye llamadas telefónicas, clientes nativos, Slack/Teams como canales de conversación, 4000 integraciones, acceso al ordenador personal ni la memoria de ChatGPT. El ordenador usa un contexto de navegador efímero por contenedor; no hereda tus sesiones personales. Docker aporta separación y límites de recursos, pero esta versión no es un servicio multiusuario ni una solución de aislamiento para páginas hostiles.
+No incluye clientes nativos, Slack/Teams como canales de conversación, 4000 integraciones, acceso al ordenador personal ni la memoria de ChatGPT. El ordenador usa un contexto de navegador efímero por contenedor; no hereda tus sesiones personales. Docker aporta separación y límites de recursos, pero esta versión no es un servicio multiusuario ni una solución de aislamiento para páginas hostiles.
 
 Para exponerlo fuera de loopback, configura un reverse proxy HTTPS, `AUTH_COOKIE_SECURE=1` y `CORS_ORIGINS` con el origen exacto de la interfaz. No abras la API, el socket Docker ni los puertos de los ordenadores directamente a Internet.
 

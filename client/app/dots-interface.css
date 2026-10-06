@@ -535,6 +535,47 @@
   font-size: 13px;
   margin-top: 8px;
 }
+.contact-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.contact-diagnostic {
+  padding: 20px;
+  margin-bottom: 24px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+}
+.contact-diagnostic ul,
+.contact-setup-issues {
+  padding-left: 18px;
+  margin: 14px 0;
+  font-size: 13px;
+  line-height: 1.8;
+}
+.contact-diagnostic li + li {
+  margin-top: 7px;
+}
+.contact-setup-issues {
+  color: #ffc77e;
+}
+.contact-guide details {
+  margin-top: 16px;
+  font-size: 13px;
+}
+.contact-guide summary {
+  cursor: pointer;
+  color: var(--foreground);
+}
+.contact-env-vars {
+  font-size: 12px;
+  line-height: 1.8;
+  overflow-x: auto;
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--surface);
+}
 .contact-inner h2 {
   font-size: 16px;
   font-weight: 550;

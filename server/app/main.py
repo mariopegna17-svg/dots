@@ -37,6 +37,7 @@ PUBLIC_API_PATHS = {
     "/api/v1/public/chat",
     "/api/v1/communications/webhooks/voice",
     "/api/v1/communications/webhooks/whatsapp",
+    "/api/v1/communications/webhooks/status",
 }
 
 

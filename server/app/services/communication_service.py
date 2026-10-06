@@ -24,7 +24,32 @@ SETTING_FIELDS = set(CommunicationSettings.model_fields) - {"twilio_auth_token_c
 
 
 class CommunicationError(ValueError):
-    pass
+    def __init__(self, message, code=None):
+        super().__init__(message)
+        self.code = code
+
+
+def provider_error(code):
+    messages = {
+        11200: "Twilio no pudo abrir el webhook de esta web. Revisa la URL HTTPS y los registros de Render; si el servicio está dormido, abre la web antes de probar.",
+        11205: "Twilio no pudo conectar con el servidor del webhook. Comprueba que la web esté accesible en su URL HTTPS.",
+        12300: "El webhook devolvió un contenido que Twilio no reconoce. Revisa la URL pública y despliega la versión actual de Dots.",
+        20003: "Twilio no acepta el Account SID o el Auth Token. Usa las credenciales de producción de la misma cuenta, no las credenciales de prueba de la API.",
+        20005: "La cuenta de Twilio no está activa. Revisa su estado en Twilio Console.",
+        21211: "Twilio no reconoce el número de destino. Revisa tu número con prefijo internacional.",
+        21212: "El número de origen no sirve para llamadas. Usa un número de voz de tu cuenta de Twilio o un identificador verificado.",
+        21210: "Verifica el número de origen de la llamada en Twilio o usa un número de voz de esa cuenta.",
+        21215: "Twilio tiene bloqueadas las llamadas a ese país. Actívalo en Voice → Geo Permissions.",
+        21219: "Tu cuenta de prueba solo puede llamar a números verificados. Verifica tu teléfono en Twilio → Verified Caller IDs.",
+        21606: "El remitente no permite enviar mensajes. Revisa el número de WhatsApp de Twilio.",
+        21608: "Tu cuenta de prueba necesita que verifiques el número de destino en Twilio.",
+        63007: "El remitente de WhatsApp no está registrado en esta cuenta. Usa el número exacto del Sandbox o un remitente aprobado.",
+        63015: "Tu teléfono no está unido al Sandbox de WhatsApp. Envía el código join que aparece en Twilio desde tu WhatsApp y vuelve a intentarlo.",
+        63016: "Abre la conversación enviando primero un WhatsApp al número de Twilio. Fuera de 24 horas se necesita una plantilla aprobada.",
+        63024: "El número de destino no está disponible en WhatsApp. Revisa tu número configurado.",
+    }
+    text = messages.get(code, "Twilio rechazó la solicitud. Revisa el número, los permisos y el saldo en Twilio Console.")
+    return f"Twilio {code}: {text}" if code else text
 
 
 def verify_signature(url, params, token, signature):
@@ -59,8 +84,8 @@ class CommunicationService:
     def __init__(self, storage=storage_service):
         self.storage = storage
 
-    def config(self):
-        public_url = os.getenv("COMMUNICATION_PUBLIC_URL") or os.getenv("PUBLIC_APP_URL") or os.getenv("RENDER_EXTERNAL_URL", "")
+    def raw_config(self):
+        public_url = (os.getenv("COMMUNICATION_PUBLIC_URL") or os.getenv("PUBLIC_APP_URL") or os.getenv("RENDER_EXTERNAL_URL", "")).strip()
         if not public_url.startswith("https://"):
             public_url = ""
         defaults = {
@@ -75,25 +100,54 @@ class CommunicationService:
         }
         saved = self.storage.get_settings()
         defaults.update({key: saved[key] for key in SETTING_FIELDS if key in saved})
-        return CommunicationSettings.model_validate(defaults).model_dump()
+        # A blank saved URL must not erase Render's automatically supplied origin.
+        defaults["communication_public_url"] = defaults["communication_public_url"] or public_url
+        bots = self.storage.get_bots()
+        defaults["communication_bot_id"] = defaults["communication_bot_id"] or (bots[0]["id"] if bots else "")
+        return defaults
+
+    def validated_config(self):
+        raw = self.raw_config()
+        invalid = {}
+        try:
+            return CommunicationSettings.model_validate(raw).model_dump(), invalid
+        except ValidationError as exc:
+            for error in exc.errors(include_input=False, include_context=False, include_url=False):
+                field = error["loc"][0]
+                invalid[field] = error["msg"].removeprefix("Value error, ")
+                raw.pop(field, None)
+        return CommunicationSettings.model_validate(raw).model_dump(), invalid
+
+    def config(self):
+        return self.validated_config()[0]
 
     def status(self):
-        try:
-            config = self.config()
-        except ValidationError:
-            return {"voice_ready": False, "whatsapp_ready": False, "configured": False, "whatsapp_webhook": "", "daily_outbound_limit": 10}
+        config, invalid = self.validated_config()
+        labels = {"twilio_account_sid": "Account SID de Twilio", "twilio_auth_token": "Auth Token de Twilio", "owner_phone_number": "tu número de teléfono", "communication_public_url": "la URL pública HTTPS de esta web", "twilio_voice_number": "el número de Twilio para llamadas", "twilio_whatsapp_number": "el número del Sandbox o remitente de WhatsApp"}
+        common = [invalid[key] if key in invalid else f"Falta {labels[key]}." for key in ("twilio_account_sid", "twilio_auth_token", "owner_phone_number", "communication_public_url") if not config[key]]
+        if not config["communications_enabled"]:
+            common.append("Activa la conexión en Configurar y guarda los cambios.")
+        issues = {}
+        for channel, field in [("voice", "twilio_voice_number"), ("whatsapp", "twilio_whatsapp_number")]:
+            issues[channel] = list(common)
+            if not config[field]:
+                issues[channel].append(invalid.get(field) or f"Falta {labels[field]}.")
+        if not self.bot(config["communication_bot_id"]):
+            issues["whatsapp"].append("Selecciona un Dot que responda por WhatsApp.")
         configured = bool(config["twilio_account_sid"] and config["twilio_auth_token"] and config["owner_phone_number"] and config["communication_public_url"])
-        active = configured and config["communications_enabled"]
         return {
-            "voice_ready": bool(active and config["twilio_voice_number"]),
-            "whatsapp_ready": bool(active and config["twilio_whatsapp_number"]),
+            "voice_ready": not issues["voice"],
+            "whatsapp_ready": not issues["whatsapp"],
             "configured": configured,
+            "setup_issues": issues,
             "whatsapp_webhook": config["communication_public_url"] + WEBHOOK_ROOT + "/whatsapp" if config["communication_public_url"] else "",
             "daily_outbound_limit": 10,
         }
 
     def public_config(self):
-        config = self.config()
+        config, invalid = self.validated_config()
+        raw = self.raw_config()
+        config.update({key: raw[key] for key in invalid if key != "twilio_auth_token"})
         config["twilio_auth_token_configured"] = bool(config["twilio_auth_token"])
         config["twilio_auth_token"] = ""
         return {**config, **self.status()}
@@ -136,33 +190,99 @@ class CommunicationService:
     def recent(self):
         with self.storage.database.connect() as db:
             rows = db.execute("SELECT id, channel, status, created_at, payload FROM communication_events WHERE owner_id = ? AND channel IN ('voice_out','whatsapp_out','whatsapp_in') ORDER BY created_at DESC LIMIT 20", (self.storage.owner_id,)).fetchall()
-        return [{"id": row["id"], "channel": row["channel"], "status": row["status"], "created_at": row["created_at"], "message": json.loads(row["payload"]).get("message", ""), "reply": json.loads(row["payload"]).get("reply", "")} for row in rows]
+        return [{"id": row["id"], "channel": row["channel"], "status": row["status"], "created_at": row["created_at"], **{key: json.loads(row["payload"]).get(key, "") for key in ("message", "reply", "error", "error_code")}} for row in rows]
 
-    async def _post(self, resource, data):
+    async def _request(self, method, resource, *, data=None, params=None):
         config = self.config()
         try:
             async with httpx.AsyncClient(timeout=12) as client:
-                response = await client.post(f"https://api.twilio.com/2010-04-01/Accounts/{config['twilio_account_sid']}/{resource}.json", auth=(config["twilio_account_sid"], config["twilio_auth_token"]), data=data)
+                suffix = f"/{resource}" if resource else ""
+                response = await client.request(method, f"https://api.twilio.com/2010-04-01/Accounts/{config['twilio_account_sid']}{suffix}.json", auth=(config["twilio_account_sid"], config["twilio_auth_token"]), data=data, params=params)
             if response.is_error:
-                code = response.json().get("code")
-                if code == 63016:
-                    raise CommunicationError("Abre la conversación enviando primero un WhatsApp al número de Twilio. Fuera de 24 horas se necesita una plantilla aprobada.")
-                raise CommunicationError("Twilio rechazó la solicitud. Revisa las credenciales, el número, la verificación y el saldo en su panel.")
+                try:
+                    code = int(response.json().get("code"))
+                except (ValueError, TypeError, AttributeError):
+                    code = None
+                raise CommunicationError(provider_error(code), code)
             result = response.json()
-            if not result.get("sid"):
-                raise CommunicationError("Twilio no confirmó la solicitud.")
-            return {"sid": result["sid"], "status": result.get("status", "queued")}
+            if not isinstance(result, dict):
+                raise CommunicationError("Twilio devolvió una respuesta inválida. Consulta Twilio Console.")
+            return result
         except (httpx.HTTPError, ValueError) as exc:
             if isinstance(exc, CommunicationError):
                 raise
             raise CommunicationError("No se pudo confirmar la conexión con Twilio. Consulta su panel antes de reintentar.") from None
+
+    async def _post(self, resource, data):
+        result = await self._request("POST", resource, data=data)
+        if not result.get("sid"):
+            raise CommunicationError("Twilio no confirmó la solicitud.")
+        return {"sid": result["sid"], "status": result.get("status", "queued")}
+
+    async def check_connection(self):
+        """Read-only checks: never create a call or send a message."""
+        config = self.config()
+        status = self.status()
+        checks = []
+        for channel in ("voice", "whatsapp"):
+            checks.append({"id": channel, "ok": not status["setup_issues"][channel], "message": "Datos completos." if not status["setup_issues"][channel] else " ".join(status["setup_issues"][channel])})
+        if config["twilio_account_sid"] and config["twilio_auth_token"]:
+            try:
+                account = await self._request("GET", "")
+                active = account.get("status") == "active"
+                checks.append({"id": "account", "ok": active, "message": "Credenciales de Twilio válidas." if active else "La cuenta de Twilio no está activa. Revisa Twilio Console."})
+                if active and config["twilio_voice_number"]:
+                    numbers = await self._request("GET", "IncomingPhoneNumbers", params={"PhoneNumber": config["twilio_voice_number"], "PageSize": 20})
+                    voice = any(number.get("phone_number") == config["twilio_voice_number"] and number.get("capabilities", {}).get("voice") for number in numbers.get("incoming_phone_numbers", []))
+                    if not voice:
+                        verified = await self._request("GET", "OutgoingCallerIds", params={"PhoneNumber": config["twilio_voice_number"], "PageSize": 20})
+                        voice = any(number.get("phone_number") == config["twilio_voice_number"] for number in verified.get("outgoing_caller_ids", []))
+                    checks.append({"id": "voice_number", "ok": voice, "message": "Remitente de voz válido." if voice else "El número de voz no pertenece a esta cuenta ni es un identificador verificado. Revisa el número en Twilio."})
+                if active and account.get("type") == "Trial" and config["owner_phone_number"]:
+                    numbers = await self._request("GET", "OutgoingCallerIds", params={"PhoneNumber": config["owner_phone_number"], "PageSize": 20})
+                    verified = any(number.get("phone_number") == config["owner_phone_number"] for number in numbers.get("outgoing_caller_ids", []))
+                    checks.append({"id": "trial_phone", "ok": verified, "message": "Tu teléfono está verificado para la cuenta de prueba." if verified else "Verifica tu teléfono en Twilio → Verified Caller IDs antes de llamar desde la cuenta de prueba."})
+            except CommunicationError as exc:
+                checks.append({"id": "twilio", "ok": False, "message": str(exc)})
+        if config["communication_public_url"]:
+            try:
+                async with httpx.AsyncClient(timeout=8) as client:
+                    response = await client.get(config["communication_public_url"] + "/api/v1/health")
+                reachable = response.status_code == 200 and response.json().get("status") == "online"
+            except (httpx.HTTPError, ValueError, AttributeError):
+                reachable = False
+            checks.append({"id": "public_url", "ok": reachable, "message": "La URL pública responde." if reachable else "La URL pública no responde como esta aplicación. Usa el dominio HTTPS de Render, sin /app, y espera a que termine el despliegue."})
+        return {"ok": all(item["ok"] for item in checks), "checks": checks, "whatsapp_note": "La entrega de WhatsApp se comprueba al enviar: el teléfono debe estar unido al Sandbox y haber enviado un mensaje en las últimas 24 horas."}
+
+    def status_url(self, event_id, channel):
+        return self.config()["communication_public_url"] + WEBHOOK_ROOT + "/status?" + urlencode({"event": event_id, "channel": channel})
+
+    def submitted(self, event_id, result, **updates):
+        record = self.record(event_id)
+        # Twilio can deliver its callback before the REST request returns.
+        self.finish(event_id, "submitted" if record["status"] == "pending" else record["status"], provider_sid=result["sid"], **updates)
+
+    def delivery(self, event_id, sid, status, code=None):
+        record = self.record(event_id)
+        voice = record["channel"] == "voice_out"
+        order = {"pending": -2, "submitted": -1, "queued": 0, "initiated": 0, "ringing": 1, "in-progress": 2, "completed": 3, "busy": 3, "no-answer": 3, "canceled": 3, "failed": 3} if voice else {"pending": -2, "submitted": -1, "accepted": 0, "queued": 0, "sending": 1, "sent": 2, "delivered": 3, "read": 4, "failed": 4, "undelivered": 4}
+        if status not in order:
+            raise CommunicationError("Estado de Twilio inválido.")
+        if order.get(record["status"], -2) >= order[status]:
+            return
+        updates = {"provider_sid": sid}
+        if code:
+            updates.update(error=provider_error(code), error_code=code)
+        elif status in {"failed", "undelivered"}:
+            updates["error"] = "Twilio no pudo completar la entrega. Revisa el registro de esta comunicación en Twilio Console."
+        self.finish(event_id, status, **updates)
 
     def url(self, session, stage="start", turn=0):
         return self.config()["communication_public_url"] + WEBHOOK_ROOT + "/voice?" + urlencode({"session": session, "stage": stage, "turn": turn})
 
     async def send(self, channel, data):
         if not self.status()["voice_ready" if channel == "voice" else "whatsapp_ready"]:
-            raise CommunicationError("Completa y activa la conexión con Twilio en Llamadas y WhatsApp.")
+            raise CommunicationError(" ".join(self.status()["setup_issues"][channel]))
         if not self.bot(data.bot_id):
             raise CommunicationError("El Dot seleccionado ya no existe.")
         config = self.config()
@@ -170,13 +290,13 @@ class CommunicationService:
         self.claim(event_id, channel + "_out", {"bot_id": data.bot_id, "message": data.message}, outbound=True)
         try:
             if channel == "voice":
-                result = await self._post("Calls", {"From": config["twilio_voice_number"], "To": config["owner_phone_number"], "Url": self.url(event_id), "Method": "POST", "TimeLimit": "180"})
+                result = await self._post("Calls", {"From": config["twilio_voice_number"], "To": config["owner_phone_number"], "Url": self.url(event_id), "Method": "POST", "TimeLimit": "180", "StatusCallback": self.status_url(event_id, channel), "StatusCallbackMethod": "POST", "StatusCallbackEvent": ["initiated", "ringing", "answered", "completed"]})
             else:
-                result = await self._post("Messages", {"From": "whatsapp:" + config["twilio_whatsapp_number"], "To": "whatsapp:" + config["owner_phone_number"], "Body": data.message})
-            self.finish(event_id, "submitted", provider_sid=result["sid"])
+                result = await self._post("Messages", {"From": "whatsapp:" + config["twilio_whatsapp_number"], "To": "whatsapp:" + config["owner_phone_number"], "Body": data.message, "StatusCallback": self.status_url(event_id, channel)})
+            self.submitted(event_id, result)
             return {"id": event_id, **result, "note": "Solicitud aceptada por Twilio; todavía no confirma la entrega."}
-        except CommunicationError:
-            self.finish(event_id, "failed")
+        except CommunicationError as exc:
+            self.finish(event_id, "failed", error=str(exc), error_code=exc.code)
             raise
 
     async def answer(self, bot_id, text, thread_id, *, voice=False):
@@ -211,10 +331,11 @@ class CommunicationService:
             # Re-check enabled state after inference, before any external effect.
             if not self.status()["whatsapp_ready"]:
                 raise CommunicationError("La conexión está desactivada.")
-            result = await self._post("Messages", {"From": "whatsapp:" + config["twilio_whatsapp_number"], "To": "whatsapp:" + config["owner_phone_number"], "Body": reply})
-            self.finish(event_id, "submitted", reply=reply, provider_sid=result["sid"])
-        except Exception:
-            self.finish(event_id, "failed")
+            result = await self._post("Messages", {"From": "whatsapp:" + config["twilio_whatsapp_number"], "To": "whatsapp:" + config["owner_phone_number"], "Body": reply, "StatusCallback": self.status_url(event_id, "whatsapp")})
+            self.submitted(event_id, result, reply=reply)
+        except Exception as exc:
+            error = str(exc) if isinstance(exc, CommunicationError) else "El proveedor de IA no pudo responder. Revisa el modelo y su configuración en Ajustes."
+            self.finish(event_id, "failed", error=error, error_code=getattr(exc, "code", None))
 
     async def reply_voice(self, event_id, session, bot_id, text):
         try:

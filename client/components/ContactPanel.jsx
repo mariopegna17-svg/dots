@@ -7,6 +7,7 @@ import {
   FiCopy,
   FiArrowUpRight,
   FiCheck,
+  FiRefreshCw,
 } from "react-icons/fi";
 import { agentState } from "../lib/api";
 import Modal from "./Modal";
@@ -16,6 +17,19 @@ const labels = {
   submitted: "Aceptado por Twilio",
   failed: "No se pudo completar",
   completed: "Completado",
+  queued: "En cola",
+  initiated: "Iniciando llamada",
+  ringing: "Tu teléfono está sonando",
+  "in-progress": "Llamada en curso",
+  busy: "Teléfono ocupado",
+  "no-answer": "No se ha contestado",
+  canceled: "Cancelado",
+  accepted: "Aceptado por Twilio",
+  sending: "Enviando",
+  sent: "Enviado; pendiente de entrega",
+  delivered: "Entregado",
+  read: "Leído",
+  undelivered: "No entregado",
 };
 const fields = [
   ["owner_phone_number", "Tu número", "+34612345678", "tel"],
@@ -51,6 +65,11 @@ export default function ContactPanel({ bots, bot }) {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState(null);
   const [copied, setCopied] = useState(false);
+  const [draft, setDraft] = useState(null);
+  const [diagnostic, setDiagnostic] = useState(null);
+  const [checking, setChecking] = useState(false);
+  const [historyError, setHistoryError] = useState("");
+  const configLoaded = Boolean(config);
   useEffect(() => {
     let disposed = false;
     Promise.all([
@@ -76,6 +95,48 @@ export default function ContactPanel({ bots, bot }) {
       disposed = true;
     };
   }, [bot?.id, bots]);
+  useEffect(() => {
+    if (!configLoaded) return;
+    let disposed = false;
+    const timer = window.setInterval(async () => {
+      try {
+        const history = await agentState("communications/events");
+        if (!disposed) {
+          setEvents(history);
+          setHistoryError("");
+        }
+      } catch {
+        if (!disposed)
+          setHistoryError(
+            "No se ha podido actualizar el estado. Comprueba tu conexión.",
+          );
+      }
+    }, 4000);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, [configLoaded]);
+  function openSetup() {
+    setDraft({
+      ...config,
+      communication_public_url:
+        config.communication_public_url ||
+        (window.location.protocol === "https:" ? window.location.origin : ""),
+    });
+    setSetupOpen(true);
+  }
+  async function checkConnection() {
+    setChecking(true);
+    setNotice(null);
+    try {
+      setDiagnostic(await agentState("communications/check", "POST"));
+    } catch (error) {
+      setNotice({ error: true, text: error.message });
+    } finally {
+      setChecking(false);
+    }
+  }
   async function save(event) {
     event.preventDefault();
     setBusy(true);
@@ -91,10 +152,11 @@ export default function ContactPanel({ bots, bot }) {
           "twilio_whatsapp_number",
           "communication_bot_id",
           "communication_public_url",
-        ].map((key) => [key, config[key]]),
+        ].map((key) => [key, draft[key]]),
       );
       const data = await agentState("communications/settings", "POST", payload);
       setConfig(data);
+      setDiagnostic(null);
       setSetupOpen(false);
       setNotice({
         text:
@@ -123,13 +185,19 @@ export default function ContactPanel({ bots, bot }) {
         text:
           channel === "voice"
             ? "Twilio ha aceptado la llamada a tu número."
-            : "Twilio ha aceptado el mensaje. Puedes consultar la entrega en su panel.",
+            : "Twilio ha aceptado el mensaje. Comprueba la entrega en Últimas comunicaciones.",
       });
-      setEvents(await agentState("communications/events"));
     } catch (error) {
       setConfirm(false);
       setNotice({ error: true, text: error.message });
     } finally {
+      try {
+        setEvents(await agentState("communications/events"));
+      } catch {
+        setHistoryError(
+          "No se ha podido actualizar el estado. Comprueba tu conexión.",
+        );
+      }
       setBusy(false);
     }
   }
@@ -137,7 +205,7 @@ export default function ContactPanel({ bots, bot }) {
     config?.[channel === "voice" ? "voice_ready" : "whatsapp_ready"],
   );
   const update = (key, value) =>
-    setConfig((previous) => ({ ...previous, [key]: value }));
+    setDraft((previous) => ({ ...previous, [key]: value }));
   return (
     <div className="contact-scroll">
       <div className="contact-inner">
@@ -146,13 +214,23 @@ export default function ContactPanel({ bots, bot }) {
             <h1>Llamadas y WhatsApp</h1>
             <p>Habla con tu Dot también desde tu teléfono.</p>
           </div>
-          <button
-            className="compact-button"
-            disabled={!config}
-            onClick={() => setSetupOpen(true)}
-          >
-            <FiSettings /> Configurar
-          </button>
+          <div className="contact-actions">
+            <button
+              className="compact-button"
+              disabled={!config || busy || checking}
+              onClick={checkConnection}
+            >
+              <FiRefreshCw className={checking ? "animate-spin" : ""} />
+              {checking ? "Comprobando…" : "Comprobar conexión"}
+            </button>
+            <button
+              className="compact-button"
+              disabled={!config || busy || checking}
+              onClick={openSetup}
+            >
+              <FiSettings /> Configurar
+            </button>
+          </div>
         </header>
         {notice && (
           <p
@@ -161,6 +239,53 @@ export default function ContactPanel({ bots, bot }) {
           >
             {notice.text}
           </p>
+        )}
+        {diagnostic && (
+          <section className="contact-diagnostic" aria-live="polite">
+            <h2>
+              {diagnostic.ok
+                ? "Comprobaciones correctas"
+                : "Hay problemas en la conexión"}
+            </h2>
+            <ul>
+              {diagnostic.checks.map((check) => (
+                <li
+                  key={check.id}
+                  className={check.ok ? "inline-success" : "inline-error"}
+                >
+                  {check.ok ? "✓" : "×"} {check.message}
+                </li>
+              ))}
+            </ul>
+            <p className="muted">{diagnostic.whatsapp_note}</p>
+            <button
+              className="text-button"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(
+                    [
+                      "Diagnóstico de Dots",
+                      ...diagnostic.checks.map(
+                        (check) =>
+                          `${check.ok ? "OK" : "ERROR"}: ${check.message}`,
+                      ),
+                      diagnostic.whatsapp_note,
+                    ].join("\n"),
+                  );
+                  setNotice({
+                    text: "Diagnóstico copiado. No contiene tus credenciales.",
+                  });
+                } catch {
+                  setNotice({
+                    error: true,
+                    text: "Selecciona y copia el diagnóstico manualmente.",
+                  });
+                }
+              }}
+            >
+              <FiCopy /> Copiar diagnóstico
+            </button>
+          </section>
         )}
         <div className="contact-channels">
           {[
@@ -228,6 +353,11 @@ export default function ContactPanel({ bots, bot }) {
               : "Mensaje"}
             <textarea
               className="studio-input"
+              aria-label={
+                channel === "voice"
+                  ? "Mensaje con el que empezará la llamada"
+                  : "Mensaje"
+              }
               rows={3}
               maxLength={1500}
               value={message}
@@ -252,12 +382,19 @@ export default function ContactPanel({ bots, bot }) {
               <button
                 className="text-button"
                 disabled={!config}
-                onClick={() => setSetupOpen(true)}
+                onClick={openSetup}
               >
                 Conectar con Twilio <FiArrowUpRight />
               </button>
             )}
           </div>
+          {!ready && config?.setup_issues?.[channel]?.length > 0 && (
+            <ul className="contact-setup-issues">
+              {config.setup_issues[channel].map((issue) => (
+                <li key={issue}>{issue}</li>
+              ))}
+            </ul>
+          )}
         </section>
         <section className="contact-guide">
           <h2>Conecta tu teléfono</h2>
@@ -309,6 +446,20 @@ export default function ContactPanel({ bots, bot }) {
           >
             Abrir la guía de Twilio <FiArrowUpRight />
           </a>
+          <details>
+            <summary>Conservar la conexión en Render Free</summary>
+            <p>
+              Render Free puede borrar los ajustes guardados en la web al
+              desplegar o reiniciar. Guarda estos valores en Render →
+              Environment para que la conexión se recupere automáticamente:
+            </p>
+            <pre className="contact-env-vars">
+              {
+                "COMMUNICATIONS_ENABLED=1\nTWILIO_ACCOUNT_SID\nTWILIO_AUTH_TOKEN\nOWNER_PHONE_NUMBER\nTWILIO_VOICE_NUMBER\nTWILIO_WHATSAPP_NUMBER"
+              }
+            </pre>
+            <p>Render proporciona la URL pública automáticamente.</p>
+          </details>
         </section>
         {events.length > 0 && (
           <section className="contact-history">
@@ -332,6 +483,7 @@ export default function ContactPanel({ bots, bot }) {
                   </strong>
                   <p>{event.message}</p>
                   {event.reply && <p>{event.reply}</p>}
+                  {event.error && <p className="inline-error">{event.error}</p>}
                   <small>
                     {labels[event.status] || event.status} ·{" "}
                     {new Date(event.created_at).toLocaleString("es-ES")}
@@ -341,7 +493,12 @@ export default function ContactPanel({ bots, bot }) {
             ))}
           </section>
         )}
-        {setupOpen && config && (
+        {historyError && (
+          <p className="inline-error" role="status">
+            {historyError}
+          </p>
+        )}
+        {setupOpen && draft && (
           <Modal
             onClose={() => !busy && setSetupOpen(false)}
             titleId="contact-settings-title"
@@ -370,7 +527,7 @@ export default function ContactPanel({ bots, bot }) {
                     <input
                       className="studio-input"
                       type={type}
-                      value={config[key] || ""}
+                      value={draft[key] || ""}
                       placeholder={placeholder}
                       onChange={(e) => update(key, e.target.value)}
                     />
@@ -382,9 +539,9 @@ export default function ContactPanel({ bots, bot }) {
                     className="studio-input"
                     type="password"
                     autoComplete="new-password"
-                    value={config.twilio_auth_token || ""}
+                    value={draft.twilio_auth_token || ""}
                     placeholder={
-                      config.twilio_auth_token_configured
+                      draft.twilio_auth_token_configured
                         ? "Guardado; deja vacío para conservarlo"
                         : "Pega el Auth Token de Twilio"
                     }
@@ -397,7 +554,7 @@ export default function ContactPanel({ bots, bot }) {
                   Dot que responde por WhatsApp
                   <select
                     className="studio-input"
-                    value={config.communication_bot_id}
+                    value={draft.communication_bot_id}
                     onChange={(e) =>
                       update("communication_bot_id", e.target.value)
                     }
@@ -413,7 +570,7 @@ export default function ContactPanel({ bots, bot }) {
               <label className="contact-enable">
                 <input
                   type="checkbox"
-                  checked={Boolean(config.communications_enabled)}
+                  checked={Boolean(draft.communications_enabled)}
                   onChange={(e) =>
                     update("communications_enabled", e.target.checked)
                   }
@@ -425,6 +582,11 @@ export default function ContactPanel({ bots, bot }) {
                   {notice.text}
                 </p>
               )}
+              <p className="muted">
+                Usa Account SID y Auth Token de Account Info en Twilio Console.
+                Una cuenta Trial sirve; las Test Credentials de la API simulan
+                solicitudes y no realizan llamadas ni entregan mensajes.
+              </p>
               <p className="muted">
                 El token se guarda cifrado y nunca se devuelve al navegador. La
                 cuenta de prueba tiene crédito limitado; comprueba las tarifas y

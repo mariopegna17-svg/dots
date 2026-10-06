@@ -2,6 +2,7 @@ import base64
 import hashlib
 import hmac
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -217,3 +218,181 @@ class CommunicationTests(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn(self.config['twilio_auth_token'], str(raised.exception))
             if code == 63016:
                 self.assertIn('24 horas', str(raised.exception))
+
+    async def test_render_origin_survives_blank_saved_url_and_defaults_to_first_bot(self):
+        self.service.save_config(CommunicationSettings(communication_public_url='', communication_bot_id=''))
+        with patch.dict(os.environ, {'RENDER_EXTERNAL_URL': ' https://dots-render.example/ ', 'PUBLIC_APP_URL': '', 'COMMUNICATION_PUBLIC_URL': ''}):
+            config = self.service.public_config()
+        self.assertEqual(config['communication_public_url'], 'https://dots-render.example')
+        self.assertEqual(config['communication_bot_id'], self.bot_id)
+        self.assertTrue(config['voice_ready'])
+        self.assertTrue(config['whatsapp_ready'])
+
+    async def test_app_link_is_normalized_and_token_whitespace_is_removed(self):
+        data = CommunicationSettings(communication_public_url='https://dots.example/app/', twilio_auth_token='  replacement-secret  ')
+        self.service.save_config(data)
+        self.assertEqual(self.service.config()['communication_public_url'], 'https://dots.example')
+        self.assertEqual(self.service.config()['twilio_auth_token'], 'replacement-secret')
+
+    async def test_bad_stored_configuration_can_be_loaded_and_repaired(self):
+        self.storage.save_settings({'twilio_voice_number': 'invalid'})
+        response = await self.client.get('/api/v1/communications/settings', headers=self.auth)
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertFalse(data['voice_ready'])
+        self.assertTrue(data['whatsapp_ready'])
+        self.assertIn('formato internacional', ' '.join(data['setup_issues']['voice']))
+        self.assertNotIn(self.config['twilio_auth_token'], response.text)
+        response = await self.client.post('/api/v1/communications/settings', headers=self.auth, json={'twilio_voice_number': self.config['twilio_voice_number']})
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['voice_ready'])
+
+    async def test_nvidia_key_in_twilio_field_is_hidden_and_reported_as_invalid(self):
+        wrong_token = 'nvapi-' + 'fixture' * 5
+        self.storage.save_settings({'twilio_auth_token': wrong_token})
+        response = await self.client.get('/api/v1/communications/settings', headers=self.auth)
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(wrong_token, response.text)
+        self.assertFalse(response.json()['twilio_auth_token_configured'])
+        self.assertFalse(response.json()['voice_ready'])
+        self.assertIn('no la clave de NVIDIA', ' '.join(response.json()['setup_issues']['voice']))
+
+    async def test_diagnostic_verifies_trial_account_without_external_effects(self):
+        requests = []
+        original_client = httpx.AsyncClient
+        def handler(request):
+            requests.append(request)
+            self.assertEqual(request.method, 'GET')
+            if request.url.path == '/api/v1/health':
+                return httpx.Response(200, json={'status': 'online'})
+            if request.url.path.endswith('/IncomingPhoneNumbers.json'):
+                self.assertEqual(request.url.params['PhoneNumber'], self.config['twilio_voice_number'])
+                return httpx.Response(200, json={'incoming_phone_numbers': [{'phone_number': self.config['twilio_voice_number'], 'capabilities': {'voice': True}}]})
+            if request.url.path.endswith('/OutgoingCallerIds.json'):
+                return httpx.Response(200, json={'outgoing_caller_ids': [{'phone_number': self.config['owner_phone_number']}]})
+            return httpx.Response(200, json={'status': 'active', 'type': 'Trial'})
+        def client_factory(*args, **kwargs):
+            return original_client(transport=httpx.MockTransport(handler))
+        with patch('app.services.communication_service.httpx.AsyncClient', side_effect=client_factory):
+            response = await self.client.post('/api/v1/communications/check', headers=self.auth)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['ok'])
+        self.assertEqual(len(requests), 4)
+        self.assertEqual(self.post.await_count, 0)
+        self.assertEqual(self.service.recent(), [])
+        self.assertNotIn(self.config['twilio_auth_token'], response.text)
+        self.assertEqual((await self.client.post('/api/v1/communications/check')).status_code, 401)
+
+    async def test_diagnostic_reports_authentication_failure_without_leaking_token(self):
+        original_client = httpx.AsyncClient
+        def handler(request):
+            if request.url.path == '/api/v1/health':
+                return httpx.Response(200, json={'status': 'online'})
+            return httpx.Response(401, json={'code': 20003, 'message': self.config['twilio_auth_token']})
+        with patch('app.services.communication_service.httpx.AsyncClient', side_effect=lambda *a, **kw: original_client(transport=httpx.MockTransport(handler))):
+            response = await self.client.post('/api/v1/communications/check', headers=self.auth)
+        self.assertFalse(response.json()['ok'])
+        self.assertIn('20003', response.text)
+        self.assertNotIn(self.config['twilio_auth_token'], response.text)
+        self.assertEqual(self.post.await_count, 0)
+
+    async def test_diagnostic_finds_unverified_trial_destination_and_wrong_voice_sender(self):
+        original_client = httpx.AsyncClient
+        def handler(request):
+            if request.url.path == '/api/v1/health':
+                return httpx.Response(200, json={'status': 'online'})
+            if request.url.path.endswith('/IncomingPhoneNumbers.json'):
+                return httpx.Response(200, json={'incoming_phone_numbers': []})
+            if request.url.path.endswith('/OutgoingCallerIds.json'):
+                return httpx.Response(200, json={'outgoing_caller_ids': []})
+            return httpx.Response(200, json={'status': 'active', 'type': 'Trial'})
+        with patch('app.services.communication_service.httpx.AsyncClient', side_effect=lambda *a, **kw: original_client(transport=httpx.MockTransport(handler))):
+            report = await self.service.check_connection()
+        by_id = {check['id']: check for check in report['checks']}
+        self.assertFalse(by_id['voice_number']['ok'])
+        self.assertFalse(by_id['trial_phone']['ok'])
+        self.assertEqual(self.post.await_count, 0)
+
+    async def test_call_callbacks_report_progress_and_do_not_regress(self):
+        result = await self.service.send('voice', CommunicationMessage(bot_id=self.bot_id, message='Hola'))
+        path = self.post.call_args.args[1]['StatusCallback'].removeprefix(self.config['communication_public_url'])
+        self.assertEqual(self.post.call_args.args[1]['StatusCallbackEvent'], ['initiated', 'ringing', 'answered', 'completed'])
+        form = self.form('voice', CallSid=result['sid'])
+        for status in ['ringing', 'in-progress']:
+            response = await self.webhook(path, {**form, 'CallStatus': status})
+            self.assertEqual(response.status_code, 204)
+            self.assertEqual(self.service.recent()[0]['status'], status)
+            voice_path = self.service.url(result['id']).removeprefix(self.config['communication_public_url'])
+            self.assertEqual((await self.webhook(voice_path, form)).status_code, 200)
+        for status in ['completed', 'ringing', 'completed']:
+            self.assertEqual((await self.webhook(path, {**form, 'CallStatus': status})).status_code, 204)
+        self.assertEqual(self.service.recent()[0]['status'], 'completed')
+
+    async def test_whatsapp_delivery_failure_keeps_sandbox_error_in_history(self):
+        self.post.return_value = {'sid': 'SM' + 'b'*32, 'status': 'queued'}
+        result = await self.service.send('whatsapp', CommunicationMessage(bot_id=self.bot_id, message='Hola'))
+        path = self.post.call_args.args[1]['StatusCallback'].removeprefix(self.config['communication_public_url'])
+        form = self.form(MessageSid=result['sid'], From='whatsapp:' + self.config['twilio_whatsapp_number'], To='whatsapp:' + self.config['owner_phone_number'], MessageStatus='failed', ErrorCode='63015')
+        self.assertEqual((await self.webhook(path, form)).status_code, 204)
+        event = self.service.recent()[0]
+        self.assertEqual(event['status'], 'failed')
+        self.assertEqual(event['error_code'], 63015)
+        self.assertIn('join', event['error'])
+        self.assertEqual((await self.webhook(path, {**form, 'MessageStatus': 'sent', 'ErrorCode': ''})).status_code, 204)
+        self.assertEqual(self.service.recent()[0]['status'], 'failed')
+
+    async def test_status_callback_requires_signature_account_and_matching_sid(self):
+        result = await self.service.send('voice', CommunicationMessage(bot_id=self.bot_id, message='Hola'))
+        path = self.post.call_args.args[1]['StatusCallback'].removeprefix(self.config['communication_public_url'])
+        form = self.form('voice', CallSid=result['sid'], CallStatus='completed')
+        self.assertEqual((await self.webhook(path, form, signed=False)).status_code, 403)
+        self.assertEqual((await self.webhook(path, {**form, 'CallSid': 'CA'+'e'*32})).status_code, 403)
+        self.assertEqual((await self.webhook(path, {**form, 'AccountSid': 'AC'+'d'*32})).status_code, 403)
+        self.assertEqual((await self.webhook(path, {**form, 'To': '+34999999999'})).status_code, 403)
+        self.assertEqual(self.service.recent()[0]['status'], 'submitted')
+
+    async def test_inbound_whatsapp_reply_tracks_delivery_and_read_without_regressing(self):
+        self.post.return_value = {'sid': 'SM' + 'b'*32, 'status': 'queued'}
+        response = await self.webhook('/api/v1/communications/webhooks/whatsapp', self.form(MessageSid='SM'+'c'*32, Body='Hola'))
+        self.assertEqual(response.status_code, 200)
+        path = self.post.call_args.args[1]['StatusCallback'].removeprefix(self.config['communication_public_url'])
+        form = self.form(MessageSid='SM'+'b'*32, From='whatsapp:' + self.config['twilio_whatsapp_number'], To='whatsapp:' + self.config['owner_phone_number'])
+        for status in ['sent', 'delivered', 'read', 'sent']:
+            self.assertEqual((await self.webhook(path, {**form, 'MessageStatus': status})).status_code, 204)
+        event = self.service.recent()[0]
+        self.assertEqual(event['status'], 'read')
+        self.assertEqual(event['channel'], 'whatsapp_in')
+        self.assertEqual(event['reply'], 'Respuesta real de prueba.')
+
+    async def test_early_voice_webhook_is_accepted_and_rest_response_does_not_reset_it(self):
+        async def post(resource, data):
+            path = data['Url'].removeprefix(self.config['communication_public_url'])
+            response = await self.webhook(path, self.form('voice', CallSid='CA'+'b'*32))
+            self.assertEqual(response.status_code, 200)
+            self.assertIn('Gather', response.text)
+            return {'sid': 'CA'+'b'*32, 'status': 'queued'}
+        self.post.side_effect = post
+        result = await self.service.send('voice', CommunicationMessage(bot_id=self.bot_id, message='Hola'))
+        self.assertEqual(self.service.record(result['id'])['status'], 'in-progress')
+
+    async def test_early_status_callback_survives_rest_response_and_disabled_connection(self):
+        async def post(resource, data):
+            path = data['StatusCallback'].removeprefix(self.config['communication_public_url'])
+            response = await self.webhook(path, self.form('voice', CallSid='CA'+'b'*32, CallStatus='ringing'))
+            self.assertEqual(response.status_code, 204)
+            return {'sid': 'CA'+'b'*32, 'status': 'queued'}
+        self.post.side_effect = post
+        result = await self.service.send('voice', CommunicationMessage(bot_id=self.bot_id, message='Hola'))
+        self.assertEqual(self.service.record(result['id'])['status'], 'ringing')
+        self.service.save_config(CommunicationSettings(communications_enabled=False))
+        path = self.service.status_url(result['id'], 'voice').removeprefix(self.config['communication_public_url'])
+        response = await self.webhook(path, self.form('voice', CallSid=result['sid'], CallStatus='completed'))
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(self.service.record(result['id'])['status'], 'completed')
+
+    async def test_rest_failure_is_saved_with_specific_error_code(self):
+        self.post.side_effect = CommunicationError('Twilio 21219: verifica tu teléfono.', 21219)
+        response = await self.client.post('/api/v1/communications/call', headers=self.auth, json={'bot_id': self.bot_id, 'message': 'Hola'})
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(self.service.recent()[0]['error_code'], 21219)
+        self.assertIn('21219', self.service.recent()[0]['error'])
