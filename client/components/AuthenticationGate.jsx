@@ -3,7 +3,6 @@ import { useEffect, useState } from "react";
 import { AuthenticationError, ensureSession, login, logout } from "../lib/api";
 import Dashboard from "./Dashboard";
 import DotBrand from "./DotBrand";
-import MascotAvatar from "./MascotAvatar";
 import { FiArrowUpRight, FiLock, FiLoader } from "react-icons/fi";
 
 export default function AuthenticationGate() {
@@ -65,33 +64,10 @@ export default function AuthenticationGate() {
   if (phase === "authenticated") return <Dashboard onLogout={signOut} />;
   return (
     <main className="auth-page">
-      <section className="auth-story">
-        <DotBrand />
-        <div className="auth-story-content">
-          <h1>
-            Tu próxima idea
-            <br />
-            empieza <span>aquí.</span>
-          </h1>
-          <p>
-            Un pequeño equipo para tus grandes ideas. Piensa, crea y avanza con
-            tus Dots.
-          </p>
-          <div className="auth-characters" aria-hidden="true">
-            <MascotAvatar type="lavender" size="hero" />
-            <MascotAvatar type="lime" size="hero" />
-            <MascotAvatar type="orange" size="hero" />
-          </div>
-        </div>
-        <span className="auth-footnote">
-          <FiLock />
-          Tu espacio personal. Tus conversaciones.
-        </span>
-      </section>
       <section className="auth-form-section">
         <div className="auth-card">
-          <span className="eyebrow">BIENVENIDO A TU ESPACIO</span>
-          <h2>Qué bueno verte.</h2>
+          <DotBrand />
+          <h2>Tu espacio de Dots</h2>
           <p>
             Entra y continúa donde lo dejaste.
             <br />

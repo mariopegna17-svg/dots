@@ -1,0 +1,476 @@
+"use client";
+import { useEffect, useState } from "react";
+import {
+  FiPhone,
+  FiMessageSquare,
+  FiSettings,
+  FiCopy,
+  FiArrowUpRight,
+  FiCheck,
+} from "react-icons/fi";
+import { agentState } from "../lib/api";
+import Modal from "./Modal";
+
+const labels = {
+  pending: "En preparación",
+  submitted: "Aceptado por Twilio",
+  failed: "No se pudo completar",
+  completed: "Completado",
+};
+const fields = [
+  ["owner_phone_number", "Tu número", "+34612345678", "tel"],
+  [
+    "twilio_voice_number",
+    "Número de Twilio para llamadas",
+    "+12025550123",
+    "tel",
+  ],
+  [
+    "twilio_whatsapp_number",
+    "Número de WhatsApp de Twilio",
+    "+14155238886",
+    "tel",
+  ],
+  ["twilio_account_sid", "Account SID", "AC…", "text"],
+  [
+    "communication_public_url",
+    "URL pública de esta web",
+    "https://tu-app.onrender.com",
+    "url",
+  ],
+];
+
+export default function ContactPanel({ bots, bot }) {
+  const [config, setConfig] = useState(null);
+  const [events, setEvents] = useState([]);
+  const [channel, setChannel] = useState("voice");
+  const [message, setMessage] = useState("");
+  const [selectedBot, setSelectedBot] = useState(bot?.id || "");
+  const [setupOpen, setSetupOpen] = useState(false);
+  const [confirm, setConfirm] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState(null);
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    let disposed = false;
+    Promise.all([
+      agentState("communications/settings"),
+      agentState("communications/events"),
+    ])
+      .then(([data, history]) => {
+        if (disposed) return;
+        setConfig({
+          ...data,
+          communication_bot_id:
+            data.communication_bot_id || bot?.id || bots[0]?.id || "",
+        });
+        setSelectedBot(
+          data.communication_bot_id || bot?.id || bots[0]?.id || "",
+        );
+        setEvents(history);
+      })
+      .catch(
+        (error) => !disposed && setNotice({ error: true, text: error.message }),
+      );
+    return () => {
+      disposed = true;
+    };
+  }, [bot?.id, bots]);
+  async function save(event) {
+    event.preventDefault();
+    setBusy(true);
+    setNotice(null);
+    try {
+      const payload = Object.fromEntries(
+        [
+          "communications_enabled",
+          "twilio_account_sid",
+          "twilio_auth_token",
+          "owner_phone_number",
+          "twilio_voice_number",
+          "twilio_whatsapp_number",
+          "communication_bot_id",
+          "communication_public_url",
+        ].map((key) => [key, config[key]]),
+      );
+      const data = await agentState("communications/settings", "POST", payload);
+      setConfig(data);
+      setSetupOpen(false);
+      setNotice({
+        text:
+          data.voice_ready || data.whatsapp_ready
+            ? "Conexión guardada. Twilio debe estar configurado también en su panel."
+            : "Ajustes guardados. Completa los datos para activar la conexión.",
+      });
+    } catch (error) {
+      setNotice({ error: true, text: error.message });
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function send() {
+    setBusy(true);
+    setNotice(null);
+    try {
+      await agentState(
+        `communications/${channel === "voice" ? "call" : "whatsapp"}`,
+        "POST",
+        { bot_id: selectedBot, message },
+      );
+      setConfirm(false);
+      setMessage("");
+      setNotice({
+        text:
+          channel === "voice"
+            ? "Twilio ha aceptado la llamada a tu número."
+            : "Twilio ha aceptado el mensaje. Puedes consultar la entrega en su panel.",
+      });
+      setEvents(await agentState("communications/events"));
+    } catch (error) {
+      setConfirm(false);
+      setNotice({ error: true, text: error.message });
+    } finally {
+      setBusy(false);
+    }
+  }
+  const ready = Boolean(
+    config?.[channel === "voice" ? "voice_ready" : "whatsapp_ready"],
+  );
+  const update = (key, value) =>
+    setConfig((previous) => ({ ...previous, [key]: value }));
+  return (
+    <div className="contact-scroll">
+      <div className="contact-inner">
+        <header className="contact-heading">
+          <div>
+            <h1>Llamadas y WhatsApp</h1>
+            <p>Habla con tu Dot también desde tu teléfono.</p>
+          </div>
+          <button
+            className="compact-button"
+            disabled={!config}
+            onClick={() => setSetupOpen(true)}
+          >
+            <FiSettings /> Configurar
+          </button>
+        </header>
+        {notice && (
+          <p
+            role={notice.error ? "alert" : "status"}
+            className={notice.error ? "inline-error" : "inline-success"}
+          >
+            {notice.text}
+          </p>
+        )}
+        <div className="contact-channels">
+          {[
+            [
+              "voice",
+              FiPhone,
+              "Llamadas",
+              "Tu Dot te llama y puedes responderle con la voz.",
+            ],
+            [
+              "whatsapp",
+              FiMessageSquare,
+              "WhatsApp",
+              "Escríbele a tu Dot y recibe su respuesta en WhatsApp.",
+            ],
+          ].map(([id, Icon, title, text]) => (
+            <button
+              key={id}
+              className={`contact-channel ${channel === id ? "selected" : ""}`}
+              aria-pressed={channel === id}
+              onClick={() => setChannel(id)}
+            >
+              <Icon />
+              <strong>{title}</strong>
+              <p>{text}</p>
+              <span
+                className={
+                  config?.[id === "voice" ? "voice_ready" : "whatsapp_ready"]
+                    ? "channel-ready"
+                    : "muted"
+                }
+              >
+                {config?.[id === "voice" ? "voice_ready" : "whatsapp_ready"]
+                  ? "Datos configurados"
+                  : "Por conectar"}
+              </span>
+            </button>
+          ))}
+        </div>
+        <section className="contact-compose">
+          <h2>
+            {channel === "voice" ? "Pedir una llamada" : "Enviar un WhatsApp"}
+          </h2>
+          <p className="muted">
+            Se enviará únicamente a tu número configurado. Twilio puede cobrar
+            por el uso.
+          </p>
+          <label className="field-label">
+            Dot
+            <select
+              className="studio-input"
+              value={selectedBot}
+              onChange={(e) => setSelectedBot(e.target.value)}
+            >
+              {bots.map((dot) => (
+                <option key={dot.id} value={dot.id}>
+                  {dot.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field-label">
+            {channel === "voice"
+              ? "Mensaje con el que empezará la llamada"
+              : "Mensaje"}
+            <textarea
+              className="studio-input"
+              rows={3}
+              maxLength={1500}
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              placeholder={
+                channel === "voice"
+                  ? "Hola, vamos a repasar tus planes para hoy."
+                  : "Aquí tienes el resumen de hoy…"
+              }
+            />
+          </label>
+          <div className="contact-send-row">
+            <button
+              className="primary-button"
+              disabled={!ready || !message.trim() || !selectedBot || busy}
+              onClick={() => setConfirm(true)}
+            >
+              {channel === "voice" ? <FiPhone /> : <FiMessageSquare />}
+              {channel === "voice" ? "Llamarme" : "Revisar envío"}
+            </button>
+            {!ready && (
+              <button
+                className="text-button"
+                disabled={!config}
+                onClick={() => setSetupOpen(true)}
+              >
+                Conectar con Twilio <FiArrowUpRight />
+              </button>
+            )}
+          </div>
+        </section>
+        <section className="contact-guide">
+          <h2>Conecta tu teléfono</h2>
+          <p>
+            Necesitas una cuenta de Twilio, un número para llamadas y el Sandbox
+            de WhatsApp o un remitente aprobado. NVIDIA genera las respuestas;
+            Twilio gestiona la voz y los mensajes.
+          </p>
+          <p>
+            En el Sandbox, envía el código <code>join</code> que te muestra
+            Twilio desde tu WhatsApp. Después configura este webhook, por{" "}
+            <strong>POST</strong>, en “When a message comes in”:
+          </p>
+          <div className="webhook-field">
+            <code>
+              {config?.whatsapp_webhook ||
+                "Añade la URL pública de tu web en Configurar."}
+            </code>
+            <button
+              className="icon-button"
+              disabled={!config?.whatsapp_webhook}
+              aria-label="Copiar webhook de WhatsApp"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(config.whatsapp_webhook);
+                  setCopied(true);
+                } catch {
+                  setNotice({
+                    error: true,
+                    text: "Selecciona y copia la URL manualmente.",
+                  });
+                }
+              }}
+            >
+              {copied ? <FiCheck /> : <FiCopy />}
+            </button>
+          </div>
+          <p>
+            Los mensajes libres de WhatsApp requieren una conversación abierta
+            en las últimas 24 horas. Las llamadas duran hasta 3 minutos. Los
+            canales solo admiten tu número; desde el teléfono puedes conversar,
+            y las acciones se aprueban en la web.
+          </p>
+          <a
+            href="https://www.twilio.com/docs/whatsapp/sandbox"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-button"
+          >
+            Abrir la guía de Twilio <FiArrowUpRight />
+          </a>
+        </section>
+        {events.length > 0 && (
+          <section className="contact-history">
+            <h2>Últimas comunicaciones</h2>
+            {events.map((event) => (
+              <article key={event.id}>
+                <span>
+                  {event.channel === "voice_out" ? (
+                    <FiPhone />
+                  ) : (
+                    <FiMessageSquare />
+                  )}
+                </span>
+                <div>
+                  <strong>
+                    {event.channel === "voice_out"
+                      ? "Llamada"
+                      : event.channel === "whatsapp_in"
+                        ? "WhatsApp recibido"
+                        : "WhatsApp enviado"}
+                  </strong>
+                  <p>{event.message}</p>
+                  {event.reply && <p>{event.reply}</p>}
+                  <small>
+                    {labels[event.status] || event.status} ·{" "}
+                    {new Date(event.created_at).toLocaleString("es-ES")}
+                  </small>
+                </div>
+              </article>
+            ))}
+          </section>
+        )}
+        {setupOpen && config && (
+          <Modal
+            onClose={() => !busy && setSetupOpen(false)}
+            titleId="contact-settings-title"
+            className="contact-modal"
+          >
+            <form onSubmit={save}>
+              <header className="modal-heading">
+                <div>
+                  <h2 id="contact-settings-title">Conectar mi teléfono</h2>
+                  <p>Credenciales privadas de tu cuenta de Twilio.</p>
+                </div>
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label="Cerrar configuración"
+                  disabled={busy}
+                  onClick={() => setSetupOpen(false)}
+                >
+                  ×
+                </button>
+              </header>
+              <div className="contact-form-grid">
+                {fields.map(([key, label, placeholder, type]) => (
+                  <label className="field-label" key={key}>
+                    {label}
+                    <input
+                      className="studio-input"
+                      type={type}
+                      value={config[key] || ""}
+                      placeholder={placeholder}
+                      onChange={(e) => update(key, e.target.value)}
+                    />
+                  </label>
+                ))}
+                <label className="field-label">
+                  Auth Token de Twilio
+                  <input
+                    className="studio-input"
+                    type="password"
+                    autoComplete="new-password"
+                    value={config.twilio_auth_token || ""}
+                    placeholder={
+                      config.twilio_auth_token_configured
+                        ? "Guardado; deja vacío para conservarlo"
+                        : "Pega el Auth Token de Twilio"
+                    }
+                    onChange={(e) =>
+                      update("twilio_auth_token", e.target.value)
+                    }
+                  />
+                </label>
+                <label className="field-label">
+                  Dot que responde por WhatsApp
+                  <select
+                    className="studio-input"
+                    value={config.communication_bot_id}
+                    onChange={(e) =>
+                      update("communication_bot_id", e.target.value)
+                    }
+                  >
+                    {bots.map((dot) => (
+                      <option key={dot.id} value={dot.id}>
+                        {dot.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <label className="contact-enable">
+                <input
+                  type="checkbox"
+                  checked={Boolean(config.communications_enabled)}
+                  onChange={(e) =>
+                    update("communications_enabled", e.target.checked)
+                  }
+                />{" "}
+                Activar llamadas y WhatsApp para mi número
+              </label>
+              {notice?.error && (
+                <p role="alert" className="inline-error">
+                  {notice.text}
+                </p>
+              )}
+              <p className="muted">
+                El token se guarda cifrado y nunca se devuelve al navegador. La
+                cuenta de prueba tiene crédito limitado; comprueba las tarifas y
+                la verificación de tu número en Twilio.
+              </p>
+              <button className="primary-button" disabled={busy}>
+                {busy ? "Guardando…" : "Guardar conexión"}
+              </button>
+            </form>
+          </Modal>
+        )}
+        {confirm && (
+          <Modal
+            onClose={() => !busy && setConfirm(false)}
+            titleId="contact-confirm-title"
+            className="contact-confirm"
+          >
+            <h2 id="contact-confirm-title">
+              {channel === "voice" ? "Confirmar llamada" : "Confirmar WhatsApp"}
+            </h2>
+            <p>
+              Destino: <strong>{config.owner_phone_number}</strong>
+            </p>
+            <blockquote>{message}</blockquote>
+            <p className="muted">
+              Se realizará a través de tu cuenta de Twilio y puede tener coste.
+            </p>
+            <div className="contact-send-row">
+              <button
+                className="compact-button"
+                disabled={busy}
+                onClick={() => setConfirm(false)}
+              >
+                Cancelar
+              </button>
+              <button className="primary-button" disabled={busy} onClick={send}>
+                {busy
+                  ? "Enviando…"
+                  : channel === "voice"
+                    ? "Confirmar y llamarme"
+                    : "Confirmar y enviar"}
+              </button>
+            </div>
+          </Modal>
+        )}
+      </div>
+    </div>
+  );
+}

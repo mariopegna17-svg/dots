@@ -73,6 +73,17 @@ SCHEMA_MIGRATIONS = {
         INSERT OR IGNORE INTO users(id, username, role, created_at)
         VALUES ('local-user', 'local', 'owner', datetime('now'));
     """,
+    3: """
+        CREATE TABLE IF NOT EXISTS communication_events (
+            id TEXT PRIMARY KEY,
+            owner_id TEXT NOT NULL DEFAULT 'local-user',
+            channel TEXT NOT NULL,
+            status TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            payload TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_communication_created ON communication_events(created_at);
+    """,
 }
 
 OWNER_TABLES = (

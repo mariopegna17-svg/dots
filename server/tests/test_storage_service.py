@@ -55,7 +55,7 @@ class StorageServiceTests(unittest.TestCase):
             version = connection.execute(
                 "SELECT MAX(version) FROM schema_migrations"
             ).fetchone()[0]
-        self.assertEqual(version, 2)
+        self.assertEqual(version, max(SCHEMA_MIGRATIONS))
         with sqlite3.connect(reopened.db_path) as connection:
             owner_id = connection.execute(
                 "SELECT owner_id FROM bots WHERE id = ?", ("bot-test",)
@@ -168,7 +168,7 @@ class StorageServiceTests(unittest.TestCase):
             owner_id = connection.execute(
                 "SELECT owner_id FROM bots WHERE id = 'old-bot'"
             ).fetchone()[0]
-        self.assertEqual(version, 2)
+        self.assertEqual(version, max(SCHEMA_MIGRATIONS))
         self.assertEqual(owner_id, "local-user")
 
     def _write_json(self, root: Path, name: str, value):

@@ -13,6 +13,7 @@ import {
   FiX,
   FiChevronDown,
   FiArrowUpRight,
+  FiPhone,
 } from "react-icons/fi";
 import DotBrand from "./DotBrand";
 import MascotAvatar, { botTone } from "./MascotAvatar";
@@ -110,6 +111,7 @@ export default function Sidebar({
             [FiGrid, "overview", "Inicio"],
             [FiBookOpen, "memory", "Memoria"],
             [FiClock, "routines", "Rutinas"],
+            [FiPhone, "contact", "Llamadas y WhatsApp"],
           ].map(([Icon, id, label]) => (
             <button
               key={id}

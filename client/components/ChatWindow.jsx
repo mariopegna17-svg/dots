@@ -402,16 +402,8 @@ export default function ChatWindow({
           ) : activeMessages.length === 0 ? (
             <div className="chat-empty">
               <MascotAvatar type={botTone(bot)} size="xl" />
-              <span className="eyebrow">UN ESPACIO PARA TUS IDEAS</span>
-              <h1>
-                Hola, soy {botTitle}.<br />
-                ¿Qué tienes en mente?
-              </h1>
-              <p>
-                Una pregunta, una idea a medio hacer o un proyecto.
-                <br />
-                Vamos a darle forma, juntos.
-              </p>
+              <h1>¿En qué te ayudo?</h1>
+              <p>Habla con {botTitle} sobre lo que necesites.</p>
               <div className="chat-suggestions">
                 {suggestions.map((text) => (
                   <button
@@ -443,7 +435,14 @@ export default function ChatWindow({
                 <details key={event.id} className="tool-event">
                   <summary>
                     <FiCpu />
-                    <span>{event.tool || "Herramienta"}</span>
+                    <span>
+                      {{
+                        call_owner: "Llamada a tu teléfono",
+                        whatsapp_owner: "Mensaje de WhatsApp",
+                      }[event.tool] ||
+                        event.tool ||
+                        "Herramienta"}
+                    </span>
                     <span>{toolLabels[event.type.replace("tool.", "")]}</span>
                   </summary>
                   {event.error && <p className="inline-error">{event.error}</p>}

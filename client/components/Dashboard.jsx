@@ -18,6 +18,7 @@ import AppSettingsDrawer from "./AppSettingsDrawer";
 import AgentStatePanel from "./AgentStatePanel";
 import Overview from "./Overview";
 import CreateDotDialog from "./CreateDotDialog";
+import ContactPanel from "./ContactPanel";
 import {
   fetchBots,
   fetchModels,
@@ -35,6 +36,7 @@ const tabNames = {
   audit: "Actividad",
   memory: "Memoria",
   routines: "Rutinas",
+  contact: "Llamadas y WhatsApp",
 };
 export default function Dashboard({ onLogout }) {
   const [bots, setBots] = useState([]);
@@ -224,6 +226,9 @@ export default function Dashboard({ onLogout }) {
             <Marketplace onOpenSettings={() => setIsSettingsOpen(true)} />
           )}
           {activeTab === "audit" && <AuditPanel />}
+          {activeTab === "contact" && (
+            <ContactPanel bots={bots} bot={activeBot} />
+          )}
           {["memory", "routines"].includes(activeTab) && (
             <AgentStatePanel
               key={`${activeBotId}-${activeTab}`}

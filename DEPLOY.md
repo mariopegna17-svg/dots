@@ -10,6 +10,8 @@
 
 ## Qué ofrece el enlace público
 
+Para conectar tu teléfono y WhatsApp, consulta [COMMUNICATIONS.md](COMMUNICATIONS.md). Es una integración opcional de Twilio y requiere sus propias credenciales; el alojamiento gratuito no incluye una línea telefónica.
+
 La demo pública está desactivada por defecto. Si decides compartirla más adelante, cambia `PUBLIC_DEMO_ENABLED` a `1` en el alojamiento. La raíz abrirá `/demo`. Ese chat utiliza NVIDIA, sin herramientas ni acceso a conversaciones, recuerdos, ajustes, archivos o rutinas del propietario. El historial público permanece en la pestaña del visitante y se envía al proveedor para responder; no se guarda en las conversaciones privadas. Hay 20 consultas diarias en total, compartidas entre visitantes, y un máximo de dos respuestas simultáneas. El presupuesto se cuenta en SQLite antes de llamar al proveedor; una petición fallida también consume una consulta. El proveedor puede facturar o descontar cuota por esas consultas aunque el alojamiento sea gratuito.
 
 La sección privada conserva los agentes, memoria y rutinas, protegidos por el token. Esta versión sigue siendo de un único propietario; no ofrece cuentas independientes para visitantes.

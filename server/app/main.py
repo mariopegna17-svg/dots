@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Request
 from contextlib import asynccontextmanager
-from app.routers import agent_state, public_demo
+from app.routers import agent_state, public_demo, communications
 from app.services.routine_service import routine_service
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -35,6 +35,8 @@ PUBLIC_API_PATHS = {
     "/api/v1/auth/logout",
     "/api/v1/public/status",
     "/api/v1/public/chat",
+    "/api/v1/communications/webhooks/voice",
+    "/api/v1/communications/webhooks/whatsapp",
 }
 
 
@@ -90,6 +92,7 @@ app.include_router(audit.router)
 app.include_router(computers.router)
 app.include_router(agent_state.router)
 app.include_router(public_demo.router)
+app.include_router(communications.router)
 
 
 @app.get("/api/v1/health")

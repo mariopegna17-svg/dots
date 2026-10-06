@@ -13,7 +13,7 @@ from app.services.database import Database
 from app.services.secret_store import SecretStore, SecretStoreError
 
 
-SECRET_KEYS = {"model_api_key", "model_api_headers", "composio_api_key", "composio_key"}
+SECRET_KEYS = {"model_api_key", "model_api_headers", "composio_api_key", "composio_key", "twilio_auth_token"}
 SETTING_KEYS = {
     "model_api_key",
     "model_api_base_url",
@@ -24,6 +24,9 @@ SETTING_KEYS = {
     "composio_key",
     "default_model",
     "theme",
+    "communications_enabled", "twilio_account_sid", "twilio_auth_token",
+    "owner_phone_number", "twilio_voice_number", "twilio_whatsapp_number",
+    "communication_bot_id", "communication_public_url",
 }
 
 

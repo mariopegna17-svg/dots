@@ -18,6 +18,8 @@ La referencia del producto es [Introducing Dots, de OpenAI](https://openai.com/e
 
 ## Arranque
 
+La sección **Llamadas y WhatsApp** permite conectar Twilio para que tus Dots te llamen y respondan a tus mensajes de WhatsApp. Consulta [COMMUNICATIONS.md](COMMUNICATIONS.md) para la configuración, el crédito de prueba y los límites.
+
 Para alojar tu espacio privado desde GitHub, consulta [DEPLOY.md](DEPLOY.md). Incluye un despliegue en el plan gratuito de Render, con acceso de propietario y una demo pública opcional desactivada por defecto. La publicación requiere crear la cuenta de alojamiento.
 
 Requisitos: Linux con Docker activo, Python 3.12 y `uv`, Node 22 o superior y npm. En este entorno se validaron Python 3.12 y Node 24. Cada tarea de nube ya está aislada: utiliza el checkout existente; no necesitas crear un Git worktree.
