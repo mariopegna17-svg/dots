@@ -5,12 +5,12 @@
 1. Crea una cuenta de Render con GitHub y autoriza el repositorio.
 2. Usa el enlace anterior. El archivo `render.yaml` propone un único servicio Docker con plan **Free**, sin disco de pago ni servicios adicionales. Revisa que el panel conserve ese plan antes de crear el servicio; los planes y requisitos de Render pueden cambiar.
 3. Introduce `NVIDIA_API_KEY` únicamente en el campo secreto de Render. La clave cifrada en el entorno de Codex no se sube a GitHub ni se migra automáticamente al alojamiento.
-4. Espera al despliegue. Abre la URL HTTPS que Render asigna al servicio. La raíz redirige a `/demo`, accesible sin contraseña. Ese es el enlace que puedes compartir; no se puede conocer su dirección final antes de crear el servicio.
-5. Para el espacio privado entra en `/app` e introduce el valor generado de `APP_AUTH_TOKEN`, consultándolo en privado en las variables de Render. Nunca compartas ese token junto al enlace público.
+4. Espera al despliegue. Abre la URL HTTPS que Render asigna al servicio. La raíz redirige a tu espacio privado en `/app`; la dirección final se conoce al crear el servicio.
+5. Introduce el valor generado de `APP_AUTH_TOKEN`, consultándolo en privado en las variables de Render. Nunca compartas ese token. El despliegue mantiene `PUBLIC_DEMO_ENABLED=0` para uso personal.
 
 ## Qué ofrece el enlace público
 
-El chat de demostración utiliza NVIDIA, sin herramientas ni acceso a conversaciones, recuerdos, ajustes, archivos o rutinas del propietario. El historial público permanece en la pestaña del visitante y se envía al proveedor para responder; no se guarda en las conversaciones privadas. Hay 20 consultas diarias en total, compartidas entre visitantes, y un máximo de dos respuestas simultáneas. El presupuesto se cuenta en SQLite antes de llamar al proveedor; una petición fallida también consume una consulta. El proveedor puede facturar o descontar cuota por esas consultas aunque el alojamiento sea gratuito.
+La demo pública está desactivada por defecto. Si decides compartirla más adelante, cambia `PUBLIC_DEMO_ENABLED` a `1` en el alojamiento. La raíz abrirá `/demo`. Ese chat utiliza NVIDIA, sin herramientas ni acceso a conversaciones, recuerdos, ajustes, archivos o rutinas del propietario. El historial público permanece en la pestaña del visitante y se envía al proveedor para responder; no se guarda en las conversaciones privadas. Hay 20 consultas diarias en total, compartidas entre visitantes, y un máximo de dos respuestas simultáneas. El presupuesto se cuenta en SQLite antes de llamar al proveedor; una petición fallida también consume una consulta. El proveedor puede facturar o descontar cuota por esas consultas aunque el alojamiento sea gratuito.
 
 La sección privada conserva los agentes, memoria y rutinas, protegidos por el token. Esta versión sigue siendo de un único propietario; no ofrece cuentas independientes para visitantes.
 

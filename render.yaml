@@ -1,4 +1,4 @@
-# Free public chat demo. Free instances have ephemeral storage and can sleep.
+# Free private workspace. Free instances have ephemeral storage and can sleep.
 services:
   - type: web
     name: dots-public
@@ -15,7 +15,7 @@ services:
       - key: AUTH_COOKIE_SECURE
         value: "1"
       - key: PUBLIC_DEMO_ENABLED
-        value: "1"
+        value: "0"
       - key: PUBLIC_DEMO_DAILY_LIMIT
         value: "20"
       - key: COMPUTER_PROVIDER

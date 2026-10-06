@@ -1,94 +1,68 @@
-'use client';
+"use client";
+import ReactMarkdown from "react-markdown";
+import { FiAlertCircle } from "react-icons/fi";
+import MascotAvatar, { botTone } from "./MascotAvatar";
 
-import React from 'react';
-import ReactMarkdown from 'react-markdown';
-import { FiX } from 'react-icons/fi';
-
-function formatMsgTime(createdAt) {
-  if (!createdAt) return '';
-  const d = new Date(createdAt);
-  if (isNaN(d.getTime())) return '';
-  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
-}
-
-export default function MessageItem({ message }) {
-  const isUser = message.sender === 'user';
-  const isError = message.isError || message.text?.toLowerCase().startsWith('error:');
-  const formattedTime = formatMsgTime(message.created_at);
-
-  if (isUser) {
+export default function MessageItem({ message, bot }) {
+  const user = message.sender === "user";
+  const error =
+    message.isError || message.text?.toLowerCase().startsWith("error:");
+  const date = message.created_at ? new Date(message.created_at) : null;
+  const time =
+    date && !Number.isNaN(date.getTime())
+      ? date.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })
+      : "";
+  if (error)
     return (
-      <div className="flex justify-end my-1.5">
-        <div className="dark-bubble-user px-3.5 py-2 text-xs font-sans max-w-md shadow-md">
+      <div className="message-row">
+        <div className="message-error" role="alert">
+          <FiAlertCircle />
+          <span>{message.text}</span>
+        </div>
+      </div>
+    );
+  if (user)
+    return (
+      <div className="message-row user">
+        <div className="message-bubble-user">
           {message.image_url && (
             <img
               src={message.image_url}
-              alt="Uploaded image attachment"
-              className="max-w-full max-h-56 rounded-lg object-cover border border-white/10 mb-1.5"
+              alt="Imagen adjunta"
+              className="message-image"
             />
           )}
-          <div className="flex justify-end gap-3">
-            <span className="break-words">{message.text}</span>
-            {formattedTime && (
-              <span className="text-[10px] text-zinc-300/70 font-mono tracking-tight select-none flex-shrink-0 self-end ml-auto">
-                {formattedTime}
-              </span>
-            )}
-          </div>
+          <div className="message-text">{message.text}</div>
+          {time && <time>{time}</time>}
         </div>
       </div>
     );
-  }
-
-  if (isError) {
-    return (
-      <div className="flex justify-start my-2">
-        <div className="dark-bubble-error px-4 py-1.5 text-xs font-mono max-w-md flex items-center justify-between gap-3 shadow-sm">
-          <div className="flex items-center gap-2 min-w-0">
-            <FiX className="text-red-500 text-sm flex-shrink-0" />
-            <span className="truncate">{message.text}</span>
-          </div>
-          {formattedTime && (
-            <span className="text-[10px] text-zinc-500 font-mono flex-shrink-0">{formattedTime}</span>
+  return (
+    <div className="message-row">
+      <MascotAvatar type={botTone(bot)} size="sm" />
+      <div className="message-content">
+        <div className="message-author">
+          <span>{bot?.name || "Dot"}</span>
+          {time && <time>{time}</time>}
+        </div>
+        <div className="message-text">
+          <ReactMarkdown
+            components={{
+              a: ({ node, ...props }) => (
+                <a {...props} target="_blank" rel="noopener noreferrer" />
+              ),
+            }}
+          >
+            {message.text || ""}
+          </ReactMarkdown>
+          {!message.text && (
+            <div className="typing-indicator" aria-label="Preparando respuesta">
+              <span />
+              <span />
+              <span />
+            </div>
           )}
         </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex justify-start my-2">
-      <div className="dark-bubble-bot px-5 py-3 text-xs font-sans max-w-2xl shadow-md text-zinc-100 leading-relaxed overflow-hidden">
-        <ReactMarkdown
-          components={{
-            p: ({ node, ...props }) => <div className="mb-2 last:mb-0 leading-relaxed" {...props} />,
-            strong: ({ node, ...props }) => <strong className="font-bold text-white" {...props} />,
-            code: ({ node, inline, className, children, ...props }) => {
-              const isInline = inline || (!className && typeof children === 'string' && !children.includes('\n'));
-              if (isInline) {
-                return (
-                  <code className="bg-[#2a2a30] text-cyan-300 px-1.5 py-0.5 rounded font-mono text-[11px]" {...props}>
-                    {children}
-                  </code>
-                );
-              }
-              return (
-                <pre className="bg-[#141416] p-3 rounded-xl border border-[#2b2b32] text-zinc-300 font-mono text-[11px] overflow-x-auto my-2">
-                  <code {...props}>{children}</code>
-                </pre>
-              );
-            },
-            ul: ({ node, ...props }) => <ul className="list-disc list-inside space-y-1 my-1 text-zinc-300" {...props} />,
-            ol: ({ node, ...props }) => <ol className="list-decimal list-inside space-y-1 my-1 text-zinc-300" {...props} />,
-          }}
-        >
-          {message.text}
-        </ReactMarkdown>
-        {formattedTime && (
-          <div className="text-[10px] text-zinc-400 text-right mt-1 font-mono tracking-tight select-none">
-            {formattedTime}
-          </div>
-        )}
       </div>
     </div>
   );
