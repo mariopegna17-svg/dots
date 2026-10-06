@@ -97,11 +97,160 @@
 }
 .mascot-plush {
   position: relative;
-  overflow: hidden;
+  overflow: visible;
   aspect-ratio: 1;
+  transform-origin: 50% 85%;
+  --mascot-idle: dots-breathe;
+  --mascot-duration: 4.8s;
+  --mascot-delay: -1.2s;
+  animation: var(--mascot-idle) var(--mascot-duration) ease-in-out
+    var(--mascot-delay) infinite;
+}
+.mascot-plush[data-character="lime"] {
+  --mascot-idle: dots-curious;
+  --mascot-duration: 5.2s;
+  --mascot-delay: -2.4s;
+}
+.mascot-plush[data-character="yellow"] {
+  --mascot-idle: dots-nod;
+  --mascot-duration: 5.8s;
+  --mascot-delay: -0.8s;
+}
+.mascot-plush[data-character="pink"] {
+  --mascot-idle: dots-sway;
+  --mascot-duration: 6.2s;
+  --mascot-delay: -3.1s;
 }
 .mascot-plush > svg {
   overflow: hidden;
+  transform-origin: 50% 80%;
+}
+.mascot-plush.mascot-sm[data-activity="idle"] {
+  animation: none;
+}
+.mascot-plush[data-activity="thinking"] {
+  animation: dots-think 1.8s ease-in-out infinite;
+}
+.mascot-plush[data-activity="responding"] {
+  animation: dots-respond 0.95s ease-in-out infinite;
+}
+.mascot-plush[data-activity="listening"] {
+  animation: dots-listen 2.2s ease-in-out infinite;
+}
+.mascot-plush[data-activity="greeting"] > svg,
+.create-preview .mascot-plush > svg,
+.character-option[aria-pressed="true"] .mascot-plush > svg {
+  animation: dots-greet 0.85s ease-out both;
+}
+:is(.home-dot-card, .roster-item, .character-option):focus-visible
+  .mascot-plush[data-activity="idle"]
+  > svg {
+  animation: dots-greet 0.85s ease-out both;
+}
+@media (hover: hover) and (pointer: fine) {
+  :is(.home-dot-card, .roster-item, .character-option):hover
+    .mascot-plush[data-activity="idle"]
+    > svg,
+  .mascot-plush[data-activity="idle"]:hover > svg {
+    animation: dots-greet 0.85s ease-out both;
+  }
+}
+:is(.home-dot-card, .roster-item, .character-option):active
+  .mascot-plush[data-activity="idle"]
+  > svg {
+  animation: none;
+  transform: scale(1.04, 0.94);
+}
+@keyframes dots-breathe {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-1deg) scale(1);
+  }
+  50% {
+    transform: translateY(-3px) rotate(1deg) scale(1.015, 1.025);
+  }
+}
+@keyframes dots-curious {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-1.5deg);
+  }
+  40% {
+    transform: translateY(-4px) rotate(2deg);
+  }
+  65% {
+    transform: translateY(-2px) rotate(-1deg);
+  }
+}
+@keyframes dots-nod {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  45% {
+    transform: translateY(-2px) scale(1.015, 1.025);
+  }
+  70% {
+    transform: translateY(1px) scale(1.025, 0.985);
+  }
+}
+@keyframes dots-sway {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-2deg);
+  }
+  50% {
+    transform: translateY(-3px) rotate(2deg);
+  }
+}
+@keyframes dots-greet {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0) scale(1);
+  }
+  20% {
+    transform: translateY(1px) rotate(-4deg) scale(1.04, 0.96);
+  }
+  45% {
+    transform: translateY(-6px) rotate(4deg) scale(0.98, 1.03);
+  }
+  70% {
+    transform: translateY(-2px) rotate(-2deg) scale(1);
+  }
+}
+@keyframes dots-think {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-3deg);
+  }
+  50% {
+    transform: translateY(-3px) rotate(3deg);
+  }
+}
+@keyframes dots-respond {
+  0%,
+  100% {
+    transform: translateY(0) scale(1.02, 0.98);
+  }
+  50% {
+    transform: translateY(-3px) scale(0.99, 1.03);
+  }
+}
+@keyframes dots-listen {
+  0%,
+  100% {
+    transform: rotate(-4deg) scale(1);
+  }
+  50% {
+    transform: rotate(-2deg) scale(1.025);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mascot-plush,
+  .mascot-plush > svg {
+    animation: none !important;
+    transform: none !important;
+  }
 }
 .mascot-warning {
   color: #ffc77e;

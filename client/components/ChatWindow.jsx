@@ -64,6 +64,7 @@ export default function ChatWindow({
 }) {
   const [inputPrompt, setInputPrompt] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
+  const [streamingMessageId, setStreamingMessageId] = useState(null);
   const [isListening, setIsListening] = useState(false);
   const [activeModel, setActiveModel] = useState(
     bot?.model || defaultModel || "gpt-5-mini",
@@ -98,6 +99,7 @@ export default function ChatWindow({
 
   useEffect(() => {
     setIsStreaming(false);
+    setStreamingMessageId(null);
     setPendingApprovals([]);
     setToolEvents([]);
     setNotice("");
@@ -129,6 +131,21 @@ export default function ChatWindow({
   const botTitle = bot?.name || "Open Dots Assistant";
 
   const activeMessages = useMemo(() => messages || [], [messages]);
+  const streamingMessage = activeMessages.find(
+    (message) => message.id === streamingMessageId,
+  );
+  const mascotActivity = isStreaming
+    ? streamingMessage?.text
+      ? "responding"
+      : "thinking"
+    : isListening
+      ? "listening"
+      : "idle";
+  const activityLabel = {
+    thinking: "Pensando…",
+    responding: "Escribiendo…",
+    listening: "Te escucho…",
+  }[mascotActivity];
 
   useEffect(() => {
     if (bot?.model) {
@@ -232,6 +249,7 @@ export default function ChatWindow({
 
     try {
       if (bot?.id) {
+        setStreamingMessageId(null);
         setIsStreaming(true);
         const sent = await sendMessage(
           bot.id,
@@ -250,6 +268,7 @@ export default function ChatWindow({
           (event) => {
             if (event.type === "turn.started") {
               streamingMsgId = event.botMsgId;
+              setStreamingMessageId(event.botMsgId);
               setMessages((prev) => [
                 ...prev,
                 {
@@ -371,10 +390,14 @@ export default function ChatWindow({
     <div className="chat-workspace">
       <header className="chat-agent-header">
         <div className="chat-agent-identity">
-          <MascotAvatar type={botTone(bot)} size="md" />
+          <MascotAvatar
+            type={botTone(bot)}
+            size="md"
+            activity={mascotActivity}
+          />
           <div>
             <h2>{botTitle}</h2>
-            <p>{agentLabel(bot)}</p>
+            <p aria-live="polite">{activityLabel || agentLabel(bot)}</p>
           </div>
         </div>
         <div className="chat-header-actions">
@@ -401,7 +424,7 @@ export default function ChatWindow({
             </p>
           ) : activeMessages.length === 0 ? (
             <div className="chat-empty">
-              <MascotAvatar type={botTone(bot)} size="xl" />
+              <MascotAvatar type={botTone(bot)} size="xl" activity="greeting" />
               <h1>¿En qué te ayudo?</h1>
               <p>Habla con {botTitle} sobre lo que necesites.</p>
               <div className="chat-suggestions">
@@ -452,7 +475,16 @@ export default function ChatWindow({
                 </details>
               ))}
               {activeMessages.map((msg) => (
-                <MessageItem key={msg.id} message={msg} bot={bot} />
+                <MessageItem
+                  key={msg.id}
+                  message={msg}
+                  bot={bot}
+                  activity={
+                    isStreaming && msg.id === streamingMessageId
+                      ? mascotActivity
+                      : "idle"
+                  }
+                />
               ))}
             </>
           )}

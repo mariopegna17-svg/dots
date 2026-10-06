@@ -3,7 +3,7 @@ import ReactMarkdown from "react-markdown";
 import { FiAlertCircle } from "react-icons/fi";
 import MascotAvatar, { botTone } from "./MascotAvatar";
 
-export default function MessageItem({ message, bot }) {
+export default function MessageItem({ message, bot, activity = "idle" }) {
   const user = message.sender === "user";
   const error =
     message.isError || message.text?.toLowerCase().startsWith("error:");
@@ -39,7 +39,7 @@ export default function MessageItem({ message, bot }) {
     );
   return (
     <div className="message-row">
-      <MascotAvatar type={botTone(bot)} size="sm" />
+      <MascotAvatar type={botTone(bot)} size="sm" activity={activity} />
       <div className="message-content">
         <div className="message-author">
           <span>{bot?.name || "Dot"}</span>

@@ -53,6 +53,7 @@ export default function MascotAvatar({
   type = "blue",
   size = "md",
   className = "",
+  activity = "idle",
 }) {
   const clipId = `dot-clip-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const warning = ["warning", "alert"].includes(type);
@@ -65,6 +66,7 @@ export default function MascotAvatar({
       className={`dot-mascot mascot-${size} ${warning ? "mascot-warning" : "mascot-plush"} ${className}`}
       aria-hidden="true"
       data-character={warning ? "warning" : character.id}
+      data-activity={warning ? undefined : activity}
     >
       {warning ? (
         <FiAlertCircle />

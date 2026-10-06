@@ -49,7 +49,7 @@ export default function CreateDotDialog({ defaultModel, onCreate, onClose }) {
         </button>
       </div>
       <div className={`create-preview tone-${tone}`}>
-        <MascotAvatar type={tone} size="hero" />
+        <MascotAvatar key={tone} type={tone} size="hero" />
       </div>
       <h2 id="create-dot-title" className="dialog-title">
         Dale vida a tu Dot.
