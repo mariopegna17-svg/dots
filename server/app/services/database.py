@@ -122,6 +122,9 @@ class Database:
         try:
             yield connection
             connection.commit()
+            if connection.total_changes:
+                from app.services.github_backup import mark_changed
+                mark_changed(self.path)
         except Exception:
             connection.rollback()
             raise

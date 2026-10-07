@@ -79,3 +79,6 @@ class Settings:
         self.COMPUTER_DOCKER_WORKSPACE_ROOT.mkdir(parents=True, exist_ok=True)
 
 settings = Settings()
+# Restore before authentication, SecretStore, SQLite and WhatsApp open their files.
+from app.services.github_backup import configure_backup
+configure_backup(settings.DATA_DIR)

@@ -25,6 +25,7 @@ SETTING_KEYS = {
     "default_model",
     "theme",
     "theme_accent", "theme_density", "theme_motion",
+    "team_bot_ids", "team_coordinator_id",
     "communications_enabled", "twilio_account_sid", "twilio_auth_token",
     "owner_phone_number", "twilio_voice_number", "twilio_whatsapp_number",
     "communication_bot_id", "communication_public_url",

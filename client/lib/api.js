@@ -212,6 +212,24 @@ export const fetchTeamRun = (id) => teamRequest(`/runs/${encodeURIComponent(id)}
 export const createTeamRun = (data) => teamRequest('/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
 export const cancelTeamRun = (id) => teamRequest(`/runs/${encodeURIComponent(id)}/cancel`, { method: 'POST' });
 
+export async function fetchPersistence() {
+  const response = await apiFetch(`${API_BASE_URL}/persistence/status`);
+  const data = await response.json();
+  if (!response.ok) throw new Error('No se pudo consultar el guardado de datos.');
+  return data;
+}
+export async function syncPersistence() {
+  const response = await apiFetch(`${API_BASE_URL}/persistence/sync`, { method: 'POST' });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.detail || 'No se pudo guardar la copia.');
+  return data;
+}
+export async function downloadPersistence() {
+  const response = await apiFetch(`${API_BASE_URL}/persistence/download`);
+  if (!response.ok) { const data = await response.json(); throw new Error(data.detail || 'No se pudo descargar la copia.'); }
+  return response.blob();
+}
+
 export async function fetchAuditEvents(limit = 100) {
   try {
     const res = await apiFetch(`${API_BASE_URL}/audit?limit=${encodeURIComponent(limit)}`);

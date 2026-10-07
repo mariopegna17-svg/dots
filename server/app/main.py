@@ -15,6 +15,8 @@ from app.services.whatsapp_qr_service import whatsapp_qr_service
 from app.services.youtube_service import youtube_service
 from app.routers import team
 from app.services.team_service import team_service
+from app.routers import persistence
+from app.services.github_backup import backup_service
 
 @asynccontextmanager
 async def lifespan(app):
@@ -22,6 +24,7 @@ async def lifespan(app):
     await whatsapp_qr_service.start()
     await youtube_service.start()
     await team_service.start()
+    await backup_service.start()
     try:
         yield
     finally:
@@ -29,6 +32,8 @@ async def lifespan(app):
         await whatsapp_qr_service.stop()
         await youtube_service.stop()
         await team_service.stop()
+        # Flush after WhatsApp and workers have saved their final state.
+        await backup_service.stop()
 
 
 app = FastAPI(
@@ -109,6 +114,7 @@ app.include_router(public_demo.router)
 app.include_router(communications.router)
 app.include_router(whatsapp_qr.router)
 app.include_router(team.router)
+app.include_router(persistence.router)
 
 
 @app.get("/api/v1/health")

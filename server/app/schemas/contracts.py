@@ -110,6 +110,8 @@ class AppSettingsSchema(BaseModel):
     theme_accent: Literal["blue", "mint", "violet", "rose"] = "blue"
     theme_density: Literal["comfortable", "compact"] = "comfortable"
     theme_motion: Literal["full", "reduced"] = "full"
+    team_bot_ids: list[str] = Field(default_factory=list, max_length=4)
+    team_coordinator_id: str = ""
 
     @field_validator("model_api_base_url")
     @classmethod

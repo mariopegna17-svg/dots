@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { FiCheck, FiCopy, FiSquare, FiUsers } from "react-icons/fi";
 import MascotAvatar, { botTone } from "./MascotAvatar";
-import { cancelTeamRun, createTeamRun, fetchTeamRun, fetchTeamRuns } from "../lib/api";
+import { cancelTeamRun, createTeamRun, fetchTeamRun, fetchTeamRuns, fetchSettings, saveSettings } from "../lib/api";
 
 const PHASES = { queued: "Esperando turno", analysis: "Cada Dot está aportando su solución", review: "Los Dots están revisando sus ideas juntos", synthesis: "El coordinador está preparando tu resultado", finished: "Trabajo terminado" };
 const STATES = { waiting: "En espera", thinking: "Pensando…", analyzed: "Primera aportación lista", reviewing: "Revisando a sus compañeros…", done: "Aportación y revisión listas", failed: "No pudo completar su aportación", review_failed: "Primera aportación disponible" };
@@ -19,6 +19,26 @@ export default function TeamPanel({ bots, providerConfigured, onOpenSettings }) 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
+  const [preferencesLoaded, setPreferencesLoaded] = useState(false);
+  useEffect(() => {
+    let disposed = false;
+    setPreferencesLoaded(false);
+    fetchSettings().then((settings) => {
+      if (disposed) return;
+      if (!settings) { setError("No se pudo cargar el equipo guardado."); return; }
+      const ids = (settings?.team_bot_ids || []).filter((id) => bots.some((bot) => bot.id === id));
+      if (ids.length) { setSelected(ids); setCoordinator(ids.includes(settings.team_coordinator_id) ? settings.team_coordinator_id : ids[0]); }
+      setPreferencesLoaded(true);
+    });
+    return () => { disposed = true; };
+  }, [bots]);
+  useEffect(() => {
+    if (!preferencesLoaded) return;
+    const timer = setTimeout(() => {
+      saveSettings({ team_bot_ids: selected, team_coordinator_id: coordinator }).catch(() => setError("No se pudo guardar la composición del equipo. Comprueba la conexión."));
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [selected, coordinator, preferencesLoaded]);
   useEffect(() => {
     let disposed = false;
     fetchTeamRuns().then(({ runs }) => { if (!disposed) { setHistory(runs); setRun(runs[0] || null); } }).catch((failure) => { if (!disposed) setError(failure.message); });

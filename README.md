@@ -18,6 +18,7 @@ La referencia del producto es [Introducing Dots, de OpenAI](https://openai.com/e
 - Reglas personalizadas por agente en Ajustes y actividad auditable.
 - Ordenador por agente en Docker con Chromium: visitar páginas y leer texto y enlaces, ejecutar comandos, capturar pantalla y operar teclado/ratón mediante la API. Las acciones de navegador, archivos y terminal pasan por el control de permisos.
 - Claves cifradas en el servidor y sesión de propietario con cookie HttpOnly; las claves del modelo no se envían al cliente.
+- [Copias cifradas en GitHub](PERSISTENCE.md): recuperación automática de claves, recuerdos, rutinas, equipos y sesión de WhatsApp cuando el disco del alojamiento se pierde.
 
 ## Arranque
 
@@ -79,8 +80,10 @@ Para exponerlo fuera de loopback, configura un reverse proxy HTTPS, `AUTH_COOKIE
 
 ## Validación en este entorno
 
-185 pruebas automatizadas pasadas y compilación de producción completada. Se comprobó una tarea real con NVIDIA: dos Dots aportaron análisis, revisaron las ideas del otro y entregaron una síntesis del coordinador. El modelo real también descubrió Gmail, eligió una acción conforme a su esquema y resumió los correos de prueba que devolvió el adaptador controlado; no se accedió a una cuenta de correo externa ni se enviaron mensajes. Las credenciales siguen cifradas y los datos temporales de prueba se eliminaron.
+201 pruebas automatizadas pasadas y compilación de producción completada. Se comprobó una tarea real con NVIDIA: dos Dots aportaron análisis, revisaron las ideas del otro y entregaron una síntesis del coordinador. El modelo real también descubrió Gmail, eligió una acción conforme a su esquema y resumió los correos de prueba que devolvió el adaptador controlado; no se accedió a una cuenta de correo externa ni se enviaron mensajes. Las credenciales siguen cifradas y los datos temporales de prueba se eliminaron.
 
 Las comprobaciones de navegador cubrieron temas guardados y previsualizados, equipos, conectores, revisión de vídeos, navegación móvil y la instalación web. El contenedor final funcionó con un límite de 512 MB, sin reinicios ni errores JavaScript. Las API privadas rechazaron visitantes anónimos y el service worker almacenó solo el icono y la página sin conexión.
 
 La autorización y publicación de YouTube se comprobaron con respuestas controladas y el contrato oficial del proveedor; no se autorizó un canal real ni se publicó un vídeo. La instalación se comprobó con emulación de iPhone, sin una instalación física en el dispositivo. Esta versión necesita desplegarse en Render desde el último commit para actualizar la web pública.
+
+La recuperación desde GitHub se verificó con un proveedor controlado: tras borrar el disco local se recuperaron claves, memoria, rutinas, equipos, identidad de conectores y una sesión real de la librería de WhatsApp. También se comprobó el arranque en un proceso nuevo, la restauración interrumpida, la exportación cifrada y los controles privados. No se activaron copias contra un repositorio remoto real; requieren configurar el token de GitHub y las variables de recuperación en el alojamiento.

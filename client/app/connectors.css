@@ -42,6 +42,13 @@
 .connector-actions-modal footer { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 12px; margin-top: 20px; }
 .connector-approval-details { margin: 14px 0; font-size: 12px; }
 .connector-approval-details pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow: auto; padding: 12px; margin-top: 10px; border: 1px solid var(--line); border-radius: 12px; }
+.persistence-panel h3 { display: flex; align-items: center; gap: 8px; }
+.persistence-panel > p, .persistence-panel ol { font-size: 12px; line-height: 1.8; color: var(--muted); }
+.persistence-panel ol { list-style: decimal; padding-left: 20px; }
+.persistence-panel small { display: block; color: var(--muted); font-size: 10px; line-height: 1.8; }
+.persistence-panel code { overflow-wrap: anywhere; color: var(--foreground); }
+.persistence-panel .persistence-location { color: var(--foreground); overflow-wrap: anywhere; }
+.persistence-panel .persistence-location svg { display: inline; }
 .youtube-uploads { display: grid; gap: 10px; margin-top: 22px; }
 .youtube-upload-status { display: flex; gap: 12px; align-items: flex-start; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px; }
 .youtube-upload-status > svg { flex-shrink: 0; margin-top: 3px; color: var(--muted); }

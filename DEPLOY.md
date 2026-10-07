@@ -1,5 +1,7 @@
 # Publicar gratis desde GitHub
 
+Para recuperar claves, memoria, rutinas, equipos y WhatsApp después de perder el disco, activa las [copias cifradas en el propio repositorio](PERSISTENCE.md). Render necesita un token de GitHub limitado al repositorio; la clave de recuperación permanece en sus variables de entorno.
+
 [Desplegar en Render](https://render.com/deploy?repo=https://github.com/mariopegna17-svg/dots)
 
 1. Crea una cuenta de Render con GitHub y autoriza el repositorio.
@@ -20,7 +22,7 @@ El **Equipo de Dots**, los **temas** y la instalación en iPhone funcionan con e
 
 ## Límites de la opción gratuita
 
-Las instancias gratuitas pueden suspenderse y tardar en arrancar al recibir una visita. Mientras estén suspendidas las rutinas no se ejecutan y WhatsApp no responde. Abre la web para despertar el servicio antes de escribir al Dot. Los datos locales no tienen persistencia garantizada: al reiniciar o redesplegar pueden perderse memoria, rutinas, conversaciones, el contador de cuota y la sesión de WhatsApp. Si se pierde la sesión, vuelve a escanear el QR. No uses este plan para rutinas importantes ni como un límite de gasto infalible.
+Las instancias gratuitas pueden suspenderse y tardar en arrancar al recibir una visita. Mientras estén suspendidas las rutinas no se ejecutan y WhatsApp no responde. Abre la web para despertar el servicio antes de escribir al Dot. El disco local no tiene persistencia garantizada: activa las [copias de GitHub](PERSISTENCE.md) y verifica una copia confirmada para recuperar memoria, rutinas, conversaciones, ajustes y WhatsApp tras perder ese disco. Sin copia, esos datos pueden perderse y la sesión de WhatsApp necesita otro QR. No uses este plan para rutinas importantes ni como un límite de gasto infalible.
 
 El ordenador Docker de los agentes necesita un servidor compatible. Este despliegue utiliza el adaptador remoto y no configura un servicio de ordenador: si se intenta iniciarlo mostrará un error explícito. El chat público no ofrece esa herramienta. Para toda la funcionalidad usa un VPS con Docker o configura un servicio compatible con `COMPUTER_REMOTE_BASE_URL` y su credencial.
 

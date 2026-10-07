@@ -20,3 +20,5 @@ services:
         value: "20"
       - key: COMPUTER_PROVIDER
         value: remote
+      - key: GITHUB_BACKUP_REPOSITORY
+        value: mariopegna17-svg/dots

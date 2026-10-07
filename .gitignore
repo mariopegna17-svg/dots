@@ -32,6 +32,10 @@ server/app/services/__pycache__/
 session.enc
 session.enc.tmp
 session.key
+*.enc
+*.enc.tmp
+.github-backup.json
+.github-restore.json
 
 # OS & Editor files
 .DS_Store

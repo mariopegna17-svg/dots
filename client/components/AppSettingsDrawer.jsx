@@ -12,6 +12,7 @@ import {
 import Modal from "./Modal";
 import AppearancePanel from "./AppearancePanel";
 import InstallAppPanel from "./InstallAppPanel";
+import PersistencePanel from "./PersistencePanel";
 import { fetchSettings, saveSettings } from "../lib/api";
 
 const inputClass = "studio-input";
@@ -186,6 +187,7 @@ export default function AppSettingsDrawer({
         <div className="settings-body">
           <AppearancePanel />
           <InstallAppPanel />
+          <PersistencePanel />
           {bot && (
             <form
               className={cardClass}
