@@ -1,6 +1,7 @@
 import tempfile
 import asyncio
 import socket
+import json
 import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
@@ -12,6 +13,11 @@ from app.services.auth_service import auth_service
 from app.services.communication_service import CommunicationService, CommunicationError
 from app.services.storage_service import StorageService
 from app.services.whatsapp_qr_service import WhatsAppQRService, WhatsAppQRSettings
+from app.schemas.communications import CommunicationMessage
+from app.services.communication_actions import prepare_communication_invocation, execute
+from app.services.agent_service import run_agent
+from app.services.action_gateway import ActionGateway, ActionGatewayError, action_gateway
+from app.services.approval_broker import ApprovalBroker
 
 
 class WhatsAppQRTests(unittest.IsolatedAsyncioTestCase):
@@ -23,7 +29,7 @@ class WhatsAppQRTests(unittest.IsolatedAsyncioTestCase):
         self.service.available = True
         self.bot_id = self.storage.get_bots()[0]['id']
         self.config = WhatsAppQRSettings(bot_id=self.bot_id)
-        self.bridge = AsyncMock(return_value={'state': 'connected', 'qr': None, 'account_phone': '+34612345678'})
+        self.bridge = AsyncMock(return_value={'state': 'connected', 'qr': None, 'account_phone': '+34612345678', 'connection_id': 'fixture-session'})
         self.service.request = self.bridge
         self.client = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://127.0.0.1')
         self.auth = {'Authorization': 'Bearer ' + auth_service.token}
@@ -35,6 +41,15 @@ class WhatsAppQRTests(unittest.IsolatedAsyncioTestCase):
         await self.client.aclose()
         for item in reversed(self.patches): item.stop()
         self.directory.cleanup()
+
+    async def outbound_ready(self):
+        state = {'state': 'connected', 'qr': None, 'account_phone': '+34612345678', 'connection_id': 'fixture-session'}
+        def bridge(method, path, data=None):
+            return {'id': 'fixture-sent-message', 'status': 'sent'} if path == '/send-owner' else state
+        self.bridge.side_effect = bridge
+        await self.service.connect(self.config)
+        self.bridge.reset_mock()
+        return state
 
     async def test_qr_and_controls_require_owner_login(self):
         root = '/api/v1/communications/whatsapp-qr'
@@ -137,6 +152,137 @@ class WhatsAppQRTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.json()['state'], 'unavailable')
         self.assertIn('instalar', response.json()['error'])
 
+    async def test_web_send_uses_qr_without_twilio_and_persists_outbound_history(self):
+        await self.outbound_ready()
+        with patch('app.services.communication_actions.whatsapp_qr_service', self.service):
+            invocation = await prepare_communication_invocation('whatsapp_owner', self.bot_id, '2+2=4')
+            self.assertEqual(invocation.name, 'communication.whatsapp_qr')
+            self.assertIn('+34612345678', invocation.preview)
+            result = await execute(invocation)
+            repeated = await execute(invocation)
+            changed = CommunicationMessage(bot_id=self.bot_id, message='Texto distinto')
+            with self.assertRaisesRegex(CommunicationError, 'otro mensaje'):
+                await self.service.send_owner(changed, invocation.arguments['expected'], invocation.arguments['event_id'])
+        self.assertEqual(result['provider'], 'qr')
+        self.assertEqual(repeated['status'], 'sent')
+        sends = [call for call in self.bridge.await_args_list if call.args[:2] == ('POST', '/send-owner')]
+        self.assertEqual(len(sends), 1)
+        self.assertEqual(sends[0].args[2]['text'], '2+2=4')
+        self.assertEqual(sends[0].args[2]['owner_phone_number'], '+34612345678')
+        self.assertFalse(self.communications.status()['whatsapp_ready'])
+        event = self.communications.recent()[0]
+        self.assertEqual((event['channel'], event['status'], event['provider'], event['message']), ('whatsapp_out', 'sent', 'qr', '2+2=4'))
+
+    async def test_web_send_cannot_bypass_approval_and_denial_dispatches_nothing(self):
+        await self.outbound_ready()
+        with patch('app.services.communication_actions.whatsapp_qr_service', self.service), patch('app.services.approval_broker.storage_service', self.storage):
+            broker = ApprovalBroker()
+            gateway = ActionGateway(approvals=broker, audit=self.storage)
+            gateway.register_action(action_gateway.definitions['communication.whatsapp_qr'], execute)
+            invocation = await prepare_communication_invocation('whatsapp_owner', self.bot_id, '2+2=4')
+            request, approval = gateway.open(self.bot_id, self.bot_id, invocation)
+            self.assertEqual(approval['arguments'], {'canal': 'WhatsApp por QR', 'destinatario': '+34612345678', 'mensaje': '2+2=4'})
+            with self.assertRaises(ActionGatewayError): await gateway.execute(request)
+            broker.resolve(request.request_id, 'deny')
+            self.assertEqual(await gateway.wait_for_decision(request), 'deny')
+            with self.assertRaises(ActionGatewayError): await gateway.execute(request)
+        self.assertFalse(any(call.args[:2] == ('POST', '/send-owner') for call in self.bridge.await_args_list))
+
+    async def test_changed_qr_session_after_approval_blocks_send(self):
+        state = await self.outbound_ready()
+        with patch('app.services.communication_actions.whatsapp_qr_service', self.service):
+            invocation = await prepare_communication_invocation('whatsapp_owner', self.bot_id, '2+2=4')
+            state['connection_id'] = 'replacement-session'
+            with self.assertRaisesRegex(CommunicationError, 'han cambiado'): await execute(invocation)
+        self.assertFalse(any(call.args[:2] == ('POST', '/send-owner') for call in self.bridge.await_args_list))
+        self.assertEqual(self.communications.recent(), [])
+
+    async def test_unconfirmed_web_send_is_sanitized_and_never_automatically_repeated(self):
+        await self.outbound_ready()
+        original = self.bridge.side_effect
+        def failure(method, path, data=None):
+            if path == '/send-owner': raise RuntimeError('fixture-private-bridge-secret')
+            return original(method, path, data)
+        with patch('app.services.communication_actions.whatsapp_qr_service', self.service):
+            invocation = await prepare_communication_invocation('whatsapp_owner', self.bot_id, '2+2=4')
+            self.bridge.side_effect = failure
+            for _ in range(2):
+                with self.assertRaises(CommunicationError) as raised: await execute(invocation)
+                self.assertNotIn('fixture-private-bridge-secret', str(raised.exception))
+        sends = [call for call in self.bridge.await_args_list if call.args[:2] == ('POST', '/send-owner')]
+        self.assertEqual(len(sends), 1)
+        self.assertEqual(self.communications.recent()[0]['status'], 'failed')
+
+    async def test_qr_web_send_shares_daily_limit_with_twilio_and_never_changes_provider(self):
+        await self.outbound_ready()
+        for index in range(10):
+            self.communications.claim('out-' + str(index), 'voice_out', {'message': 'fixture'}, outbound=True)
+        with patch('app.services.communication_actions.whatsapp_qr_service', self.service):
+            invocation = await prepare_communication_invocation('whatsapp_owner', self.bot_id, '2+2=4')
+            with self.assertRaisesRegex(CommunicationError, 'límite diario'): await execute(invocation)
+        self.assertFalse(any(call.args[:2] == ('POST', '/send-owner') for call in self.bridge.await_args_list))
+
+    async def test_model_with_only_gmail_in_composio_can_discover_and_send_via_connected_qr(self):
+        await self.outbound_ready()
+        captured = []
+        async def provider(**kwargs):
+            captured.append(kwargs)
+            names = {tool['function']['name'] for tool in kwargs['tools']}
+            self.assertIn('whatsapp_owner', names)
+            self.assertIn('communication_status', names)
+            self.assertNotIn(self.service.token, kwargs['system_prompt'])
+            self.assertNotIn('connection_id', kwargs['system_prompt'])
+            step = len(captured)
+            if step < 3:
+                if step == 2:
+                    apps = json.loads(kwargs['messages'][-1]['content'])
+                    self.assertEqual(apps['apps'][0]['slug'], 'gmail')
+                    self.assertEqual(apps['whatsapp']['provider'], 'qr')
+                    self.assertTrue(apps['whatsapp']['ready'])
+                name = 'connector_list_apps' if step == 1 else 'whatsapp_owner'
+                args = {} if step == 1 else {'message': '2+2=4'}
+                yield {'type': 'tool.call', 'calls': [{'id': 'fixture-call-' + str(step), 'type': 'function', 'function': {'name': name, 'arguments': json.dumps(args)}}]}
+            else:
+                result = json.loads(kwargs['messages'][-1]['content'])
+                self.assertEqual(result['status'], 'completed')
+                self.assertEqual(result['result']['provider'], 'qr')
+                yield {'type': 'content.delta', 'delta': 'WhatsApp ha aceptado el mensaje: 2+2=4.'}
+                yield {'type': 'turn.completed', 'ok': True}
+        broker = ApprovalBroker()
+        gateway = ActionGateway(approvals=broker, audit=self.storage)
+        gateway.register_action(action_gateway.definitions['communication.whatsapp_qr'], execute)
+        with patch('app.services.agent_service.storage_service', self.storage), patch('app.services.agent_service.communication_service', self.communications), \
+             patch('app.services.communication_actions.whatsapp_qr_service', self.service), patch('app.services.agent_service.action_gateway', gateway), \
+             patch('app.services.approval_broker.storage_service', self.storage), patch('app.services.agent_service.provider_service.stream_chat_completion', provider), \
+             patch('app.services.agent_service.connected_tools.connectors.key', return_value='fixture-composio-key'), \
+             patch('app.services.agent_service.connected_tools.apps', new=AsyncMock(return_value={'configured': True, 'apps': [{'slug': 'gmail', 'active_accounts': 1}]})):
+            events = []
+            async for event in run_agent(self.bot_id, 'fixture-model', [{'role': 'user', 'content': 'Escríbeme a mi WhatsApp cuánto es 2+2; ya está activado por QR.'}], ''):
+                events.append(event)
+                if event['type'] == 'request.opened':
+                    self.assertIn('2+2=4', event['summary'])
+                    broker.resolve(event['requestId'], 'allow')
+        self.assertEqual(len(captured), 3)
+        self.assertTrue(events[-1]['ok'])
+        self.assertEqual(len([call for call in self.bridge.await_args_list if call.args[:2] == ('POST', '/send-owner')]), 1)
+
+    async def test_enabled_but_disconnected_qr_explains_actual_state_and_hides_send_tool(self):
+        state = await self.outbound_ready()
+        state['state'] = 'reconnecting'
+        captured = []
+        async def provider(**kwargs):
+            captured.append(kwargs)
+            yield {'type': 'turn.completed', 'ok': True}
+        with patch('app.services.agent_service.storage_service', self.storage), patch('app.services.agent_service.communication_service', self.communications), \
+             patch('app.services.communication_actions.whatsapp_qr_service', self.service), patch('app.services.agent_service.provider_service.stream_chat_completion', provider):
+            [event async for event in run_agent(self.bot_id, 'fixture', [], '')]
+            with self.assertRaisesRegex(CommunicationError, 'reconnecting'):
+                await prepare_communication_invocation('whatsapp_owner', self.bot_id, '2+2=4')
+        names = {tool['function']['name'] for tool in captured[0]['tools']}
+        self.assertNotIn('whatsapp_owner', names)
+        self.assertIn('communication_status', names)
+        self.assertIn('reconnecting', captured[0]['system_prompt'])
+
     async def test_real_private_bridge_starts_stops_and_suppresses_sensitive_library_logs(self):
         service = WhatsAppQRService(self.storage, self.communications)
         with socket.socket() as listener:
@@ -153,6 +299,10 @@ class WhatsAppQRTests(unittest.IsolatedAsyncioTestCase):
             async with httpx.AsyncClient(trust_env=False) as client:
                 response = await client.get(f'http://127.0.0.1:{service.port}/status')
                 self.assertEqual(response.status_code, 401)
+                response = await client.post(f'http://127.0.0.1:{service.port}/send-owner', json={'text': '2+2=4'})
+                self.assertEqual(response.status_code, 401)
+                response = await client.post(f'http://127.0.0.1:{service.port}/send-owner', headers={'Authorization': 'Bearer ' + service.token}, json={'text': '2+2=4'})
+                self.assertEqual(response.status_code, 409)
                 response = await client.post(f'http://127.0.0.1:{service.port}/connect', headers={'Authorization': 'Bearer ' + service.token}, json={'mode': 'everyone'})
                 self.assertEqual(response.status_code, 409)
             self.assertEqual((await service.status())['state'], 'disconnected')

@@ -9,6 +9,9 @@ import { Bridge } from '../bridge.mjs';
 
 const own = '34612345678@s.whatsapp.net';
 const other = '34699999999@s.whatsapp.net';
+const ownerRequest = (bridge, overrides = {}) => ({ id: 'a'.repeat(32), text: '2+2=4', connection_id: bridge.generation,
+  account_phone: bridge.status().account_phone, mode: bridge.scope.mode,
+  owner_phone_number: bridge.scope.mode === 'self' ? bridge.status().account_phone : bridge.scope.owner_phone_number, ...overrides });
 function setup(t) {
   const directory = mkdtempSync(join(tmpdir(), 'dots-wa-test-'));
   const store = new AuthStore(directory);
@@ -134,4 +137,69 @@ test('QR renews, expires privately, and logout invalidates stale socket events',
   await bridge.connectionUpdate(sockets[1], { qr: 'stale' });
   assert.equal(bridge.status().qr, null);
   assert.equal(bridge.state, 'disconnected');
+});
+
+test('web messages reach the self chat without an incoming event and cannot trigger an echo loop', async t => {
+  const { bridge, open, receive, sends, store, directory } = setup(t);
+  await open();
+  assert.equal(bridge.events().length, 0);
+  const data = ownerRequest(bridge);
+  const result = await bridge.sendOwner(data);
+  assert.deepEqual(await bridge.sendOwner(data), result);
+  assert.equal(sends.length, 1);
+  assert.equal(sends[0].peer, own);
+  assert.equal(sends[0].body.text, '2+2=4');
+  await receive(result.id, own);
+  assert.equal(bridge.events().length, 0);
+  assert.equal(readFileSync(store.file).includes(Buffer.from('2+2=4')), false);
+  assert.equal(new AuthStore(directory).data.ownerSends[0].sent, result.id);
+});
+
+test('web messages in separate-number mode can only reach the configured owner', async t => {
+  const { bridge, open, sends } = setup(t);
+  await open({ mode: 'separate', owner_phone_number: '+34699999999' });
+  await assert.rejects(bridge.sendOwner(ownerRequest(bridge, { owner_phone_number: '+34611111111' })));
+  await bridge.sendOwner(ownerRequest(bridge));
+  assert.equal(sends.length, 1);
+  assert.equal(sends[0].peer, other);
+});
+
+test('changed connection, account, scope and disconnect invalidate approved web messages', async t => {
+  const { bridge, open, sends } = setup(t);
+  await open();
+  const data = ownerRequest(bridge);
+  await assert.rejects(bridge.sendOwner({ ...data, connection_id: 'stale' }));
+  await assert.rejects(bridge.sendOwner({ ...data, account_phone: '+34611111111' }));
+  bridge.configure({ mode: 'separate', owner_phone_number: '+34699999999' });
+  await assert.rejects(bridge.sendOwner(data));
+  const separate = ownerRequest(bridge);
+  await bridge.disconnect();
+  await assert.rejects(bridge.sendOwner(separate));
+  assert.equal(sends.length, 0);
+});
+
+test('uncertain and concurrent web requests never dispatch the same message twice', async t => {
+  const { bridge, open } = setup(t);
+  await open();
+  let count = 0;
+  bridge.socket.sendMessage = async () => { count++; throw new Error('Uncertain network result'); };
+  const data = ownerRequest(bridge);
+  const results = await Promise.allSettled([bridge.sendOwner(data), bridge.sendOwner(data)]);
+  assert.equal(results.every(item => item.status === 'rejected'), true);
+  await assert.rejects(bridge.sendOwner(data));
+  assert.equal(count, 1);
+});
+
+test('invalid messages and unconfirmed results are never reported as successful', async t => {
+  const { bridge, open, sends } = setup(t);
+  await open();
+  for (const changes of [{ text: '' }, { text: 'x'.repeat(1501) }, { id: '../invalid' }]) {
+    await assert.rejects(bridge.sendOwner(ownerRequest(bridge, changes)));
+  }
+  assert.equal(sends.length, 0);
+  let count = 0;
+  bridge.socket.sendMessage = async () => { count++; return undefined; };
+  await assert.rejects(bridge.sendOwner(ownerRequest(bridge)));
+  await assert.rejects(bridge.sendOwner(ownerRequest(bridge)));
+  assert.equal(count, 1);
 });

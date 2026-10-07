@@ -462,6 +462,7 @@ export default function ChatWindow({
                       {{
                         call_owner: "Llamada a tu teléfono",
                         whatsapp_owner: "Mensaje de WhatsApp",
+                        communication_status: "Estado de WhatsApp y llamadas",
                       }[event.tool] ||
                         event.tool ||
                         "Herramienta"}

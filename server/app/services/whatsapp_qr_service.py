@@ -5,6 +5,7 @@ import hashlib
 import logging
 import os
 from pathlib import Path
+import re
 import secrets
 import shutil
 
@@ -12,7 +13,7 @@ import httpx
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from typing import Literal
 
-from app.schemas.communications import CommunicationSettings
+from app.schemas.communications import CommunicationSettings, CommunicationMessage
 from app.services.communication_service import communication_service, CommunicationError
 from app.services.storage_service import storage_service
 
@@ -66,7 +67,7 @@ class WhatsAppQRService:
         if not self.client or not self.available:
             raise CommunicationError(self.error or "El servicio de WhatsApp está arrancando. Espera unos segundos.")
         try:
-            response = await self.client.request(method, path, json=data)
+            response = await self.client.request(method, path, json=data, timeout=5 if path == "/status" else 20)
             if response.is_error:
                 raise CommunicationError("No se pudo completar la operación de WhatsApp. Comprueba la conexión y vuelve a intentarlo.")
             return response.json()
@@ -82,6 +83,57 @@ class WhatsAppQRService:
         except CommunicationError as exc:
             state = {"state": "unavailable", "error": str(exc), "qr": None, "account_phone": ""}
         return {**state, **config, "available": self.available, "inference_ready": bool(self.storage.get_settings().get("model_api_key"))}
+
+    async def owner_status(self):
+        config = self.config()
+        if not config["enabled"]:
+            return {"enabled": False, "ready": False, "state": "disabled", "error": ""}
+        state = await self.status()
+        account = state.get("account_phone", "")
+        number = account if config["mode"] == "self" else config["owner_phone_number"]
+        ready = bool(state.get("available") and state.get("state") == "connected" and state.get("connection_id")
+                     and re.fullmatch(r"\+[1-9][0-9]{6,14}", account) and re.fullmatch(r"\+[1-9][0-9]{6,14}", number)
+                     and (config["mode"] == "self" or account != number))
+        error = state.get("error") or ""
+        if not ready and not error:
+            if state.get("state") == "connected":
+                error = "WhatsApp está vinculado, pero no se pudo identificar la sesión y el destinatario. Despliega la última versión y revisa el modo elegido en Llamadas y WhatsApp."
+            else:
+                error = "WhatsApp por QR está " + state.get("state", "desconectado") + ". Abre Llamadas y WhatsApp y espera a que indique conectado."
+        return {"enabled": True, "ready": ready, "state": state.get("state", "unavailable"), "error": error,
+                "mode": config["mode"], "owner_phone_number": number, "account_phone": account,
+                "connection_id": state.get("connection_id", "")}
+
+    async def send_owner(self, data: CommunicationMessage, expected, event_id):
+        record_id = "qr-out-" + event_id
+        previous = self.communications.record(record_id)
+        if previous:
+            if previous["payload"].get("bot_id") != data.bot_id or previous["payload"].get("message") != data.message:
+                raise CommunicationError("Este envío corresponde a otro mensaje. Solicita el nuevo texto desde el chat.")
+            if previous["status"] == "sent":
+                return {"id": record_id, "provider_sid": previous["payload"].get("provider_sid"), "provider": "qr", "status": "sent", "note": "Este mensaje ya se envió; no se ha repetido."}
+            raise CommunicationError("No se confirmó el envío anterior. Revisa WhatsApp antes de pedir otro mensaje.")
+        state = await self.owner_status()
+        if not state["ready"]:
+            raise CommunicationError(state["error"] or "WhatsApp por QR no está conectado.")
+        fields = ("connection_id", "mode", "owner_phone_number", "account_phone")
+        if any(state[field] != expected.get(field) for field in fields):
+            raise CommunicationError("La conexión o el destinatario de WhatsApp han cambiado. Solicita el envío otra vez.")
+        if not self.communications.bot(data.bot_id):
+            raise CommunicationError("El Dot seleccionado ya no existe.")
+        if not self.communications.claim(record_id, "whatsapp_out", {"bot_id": data.bot_id, "message": data.message, "provider": "qr"}, outbound=True):
+            raise CommunicationError("Este envío ya está registrado; no se repetirá.")
+        try:
+            result = await self.request("POST", "/send-owner", {"id": event_id, "text": data.message, **{field: state[field] for field in fields}})
+            if not result.get("id") or result.get("status") != "sent":
+                raise CommunicationError("WhatsApp no confirmó el envío. Revisa tu chat antes de volver a pedirlo.")
+            self.communications.finish(record_id, "sent", provider_sid=result["id"])
+            return {"id": record_id, "provider_sid": result["id"], "provider": "qr", "status": "sent",
+                    "note": "WhatsApp ha aceptado el mensaje mediante la sesión QR; la entrega al teléfono todavía no está confirmada."}
+        except Exception as exc:
+            error = str(exc) if isinstance(exc, CommunicationError) else "No se pudo confirmar el envío por WhatsApp. Revisa tu chat antes de volver a pedirlo."
+            self.communications.finish(record_id, "failed", error=error)
+            raise CommunicationError(error) from None
 
     def validate(self, data):
         if not self.communications.bot(data.bot_id):

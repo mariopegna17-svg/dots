@@ -1,11 +1,12 @@
 "use client";
 import { useState } from "react";
-import { FiShield, FiPhone, FiCheck, FiX } from "react-icons/fi";
+import { FiShield, FiPhone, FiMessageCircle, FiCheck, FiX } from "react-icons/fi";
 export default function ApprovalCard({ approval, onRespond }) {
   const [status, setStatus] = useState("pending");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const communication = approval.tool?.startsWith("communication");
+  const whatsappQR = approval.tool === "communication.whatsapp_qr";
   const connector = approval.tool?.startsWith("connector.");
   async function decide(action) {
     setBusy(true);
@@ -22,13 +23,15 @@ export default function ApprovalCard({ approval, onRespond }) {
   return (
     <section className="action-review" aria-label="Revisar acción del Dot">
       <header>
-        {communication ? <FiPhone /> : <FiShield />}
+        {whatsappQR ? <FiMessageCircle /> : communication ? <FiPhone /> : <FiShield />}
         <strong>Revisa esta acción</strong>
       </header>
       <p>{approval.summary}</p>
       {connector && approval.arguments && <details className="connector-approval-details" open><summary>Datos de la acción</summary><pre>{JSON.stringify(approval.arguments, null, 2)}</pre></details>}
       <small>
-        {communication
+        {whatsappQR
+          ? "Se usará tu sesión de WhatsApp vinculada por QR."
+          : communication
           ? "Se usará tu cuenta de Twilio y puede tener coste."
           : "Tu Dot te pide permiso para realizar esta acción."}
       </small>

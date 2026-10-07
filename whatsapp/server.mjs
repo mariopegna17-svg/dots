@@ -32,6 +32,7 @@ const server = createServer(async (request, response) => {
     else if (route === 'POST /connect') result = await bridge.connect({ mode: data.mode, owner_phone_number: data.owner_phone_number || '' }, { renew: data.renew === true });
     else if (route === 'POST /disconnect') result = await bridge.disconnect({ logout: data.logout === true });
     else if (route === 'POST /reply') result = await bridge.reply(data.id, data.text);
+    else if (route === 'POST /send-owner') result = await bridge.sendOwner(data);
     else if (route === 'POST /ack') { bridge.ack(data.id); result = { ok: true }; }
     else { response.writeHead(404).end(JSON.stringify({ error: 'Not found' })); return; }
     response.end(JSON.stringify(result));

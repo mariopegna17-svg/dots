@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import makeWASocket, { Browsers, DisconnectReason, jidNormalizedUser, normalizeMessageContent } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import QRCode from 'qrcode';
@@ -23,8 +23,9 @@ export class Bridge {
       state: this.state, error: this.error,
       qr: this.qrExpiresAt > Date.now() ? this.qr : null,
       qr_expires_at: this.qrExpiresAt || null,
-      account_phone: this.account ? '+' + this.account.split('@')[0] : '',
+      account_phone: this.account?.endsWith('@s.whatsapp.net') ? '+' + this.account.split('@')[0] : '',
       mode: this.scope.mode,
+      connection_id: this.generation,
     };
   }
 
@@ -172,6 +173,40 @@ export class Bridge {
   ack(id) {
     this.store.data.events = this.store.data.events.filter(event => event.id !== id);
     this.store.save();
+  }
+
+  async sendOwner(data) {
+    const account = this.status().account_phone;
+    const owner = this.scope.mode === 'self' ? account : this.scope.owner_phone_number;
+    if (!this.enabled || this.state !== 'connected' || !this.socket || !/^\+[1-9][0-9]{6,14}$/.test(account) ||
+        data.connection_id !== this.generation || data.account_phone !== account || data.mode !== this.scope.mode ||
+        data.owner_phone_number !== owner || (this.scope.mode === 'separate' && owner === account)) {
+      throw new Error('La conexión o el destinatario han cambiado.');
+    }
+    if (!/^[a-f0-9]{32}$/.test(data.id || '') || typeof data.text !== 'string' || !data.text.trim() || data.text.length > 1500) {
+      throw new Error('Mensaje inválido.');
+    }
+    const text = data.text.trim();
+    const digest = createHash('sha256').update(JSON.stringify([text, account, owner, this.scope.mode, this.generation])).digest('hex');
+    this.store.data.ownerSends ||= [];
+    const previous = this.store.data.ownerSends.find(item => item.id === data.id);
+    if (previous) {
+      if (previous.digest !== digest || !previous.sent) throw new Error('No se pudo confirmar el envío anterior. Revisa WhatsApp.');
+      return { id: previous.sent, status: 'sent' };
+    }
+    const idOut = '3EB0' + randomBytes(9).toString('hex').toUpperCase();
+    const record = { id: data.id, digest };
+    this.store.data.ownerSends = [...this.store.data.ownerSends, record].slice(-1000);
+    this.store.data.outgoing = [...this.store.data.outgoing, idOut].slice(-1000);
+    // Persist the attempt and echo ID before dispatch; uncertain retries never resend.
+    this.store.save();
+    const result = await this.socket.sendMessage(phoneJid(owner), { text }, { messageId: idOut });
+    if (!result?.key?.id) throw new Error('WhatsApp no confirmó el envío.');
+    record.sent = result.key.id;
+    if (!this.store.data.outgoing.includes(record.sent)) this.store.data.outgoing.push(record.sent);
+    this.store.data.outgoing = this.store.data.outgoing.slice(-1000);
+    this.store.save();
+    return { id: record.sent, status: 'sent' };
   }
 
   async reply(id, text) {

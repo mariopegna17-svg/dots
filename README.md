@@ -80,9 +80,11 @@ Para exponerlo fuera de loopback, configura un reverse proxy HTTPS, `AUTH_COOKIE
 
 ## Validación en este entorno
 
-204 pruebas automatizadas pasadas y compilación de producción completada. Se comprobó una tarea real con NVIDIA: dos Dots aportaron análisis, revisaron las ideas del otro y entregaron una síntesis del coordinador. El modelo real también descubrió Gmail, eligió una acción conforme a su esquema y resumió los correos de prueba que devolvió el adaptador controlado; no se accedió a una cuenta de correo externa ni se enviaron mensajes. Las credenciales siguen cifradas y los datos temporales de prueba se eliminaron.
+211 pruebas de la API y 12 del servicio de WhatsApp pasadas, y compilación de producción completada. Se comprobó una tarea real con NVIDIA: dos Dots aportaron análisis, revisaron las ideas del otro y entregaron una síntesis del coordinador. El modelo real también descubrió Gmail, eligió una acción conforme a su esquema y resumió los correos de prueba que devolvió el adaptador controlado; no se accedió a una cuenta de correo externa ni se enviaron mensajes. Las credenciales siguen cifradas y los datos temporales de prueba se eliminaron.
 
 Las comprobaciones de navegador cubrieron temas guardados y previsualizados, equipos, conectores, revisión de vídeos, navegación móvil y la instalación web. El contenedor final funcionó con un límite de 512 MB, sin reinicios ni errores JavaScript. Las API privadas rechazaron visitantes anónimos y el service worker almacenó solo el icono y la página sin conexión.
+
+Se reprodujo el caso de WhatsApp QR conectado con solo Gmail en Composio. El modelo real de NVIDIA corrigió la respuesta anterior equivocada y eligió el envío QR al propietario. La aprobación, el destinatario, la deduplicación, los cambios de sesión y los errores se probaron con sockets y transportes controlados; no se enviaron mensajes a teléfonos reales.
 
 La autorización y publicación de YouTube se comprobaron con respuestas controladas y el contrato oficial del proveedor; no se autorizó un canal real ni se publicó un vídeo. La instalación se comprobó con emulación de iPhone, sin una instalación física en el dispositivo. Esta versión necesita desplegarse en Render desde el último commit para actualizar la web pública.
 
