@@ -102,6 +102,8 @@ export default function Overview({
                   <button
                     key={dot.id}
                     className="home-dot-card"
+                    data-liquid-tilt=""
+                    data-tone={botTone(dot)}
                     onClick={() => onChat(dot.id)}
                   >
                     <MascotAvatar type={botTone(dot)} size="xl" />
@@ -113,7 +115,7 @@ export default function Overview({
                   </button>
                 ))}
             {!loading && (
-              <button className="home-dot-card home-new-dot" onClick={onCreate}>
+              <button className="home-dot-card home-new-dot" data-liquid-tilt="" onClick={onCreate}>
                 <div>
                   <FiPlus />
                 </div>

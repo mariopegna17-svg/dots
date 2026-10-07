@@ -1,5 +1,6 @@
 import "./globals.css";
 import "./dots-interface.css";
+import "./liquid-glass.css";
 
 export const metadata = {
   title: "Dots · Tu espacio para pensar y crear",

@@ -19,6 +19,7 @@ import AgentStatePanel from "./AgentStatePanel";
 import Overview from "./Overview";
 import CreateDotDialog from "./CreateDotDialog";
 import ContactPanel from "./ContactPanel";
+import useLiquidGlass from "../lib/useLiquidGlass";
 import {
   fetchBots,
   fetchModels,
@@ -39,6 +40,7 @@ const tabNames = {
   contact: "Llamadas y WhatsApp",
 };
 export default function Dashboard({ onLogout }) {
+  const glassRef = useLiquidGlass();
   const [bots, setBots] = useState([]);
   const [models, setModels] = useState([]);
   const [activeBotId, setActiveBotId] = useState("");
@@ -129,7 +131,7 @@ export default function Dashboard({ onLogout }) {
     openChat(bot.id);
   }
   return (
-    <div className="studio-app">
+    <div className="studio-app" ref={glassRef}>
       <Sidebar
         onLogout={onLogout}
         bots={bots}
@@ -192,7 +194,7 @@ export default function Dashboard({ onLogout }) {
             </button>
           </div>
         )}
-        <div className={`workspace-content view-${activeTab}`}>
+        <div key={activeTab} className={`workspace-content view-${activeTab}`}>
           {activeTab === "overview" && (
             <Overview
               bots={bots}
