@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 import hashlib
 import io
 import json
+import logging
 import os
 from pathlib import Path
 import re
@@ -41,10 +42,21 @@ class GitHubBackup:
         self.repository = env.get("GITHUB_BACKUP_REPOSITORY", "").strip()
         self.branch = "dots-data"
         self.filename = "dots-state.enc"
-        self.secret = (env.get("DATA_BACKUP_KEY") or env.get("APP_AUTH_TOKEN") or "").strip()
-        self.enabled = bool(self.token)
-        if self.enabled and (not REPOSITORY.fullmatch(self.repository) or any(part in {".", ".."} for part in self.repository.split("/")) or len(self.secret) < 32):
-            raise BackupError("Configura GITHUB_BACKUP_REPOSITORY y conserva APP_AUTH_TOKEN (mínimo 32 caracteres) o DATA_BACKUP_KEY en Render.")
+        recovery_key = env.get("DATA_BACKUP_KEY", "").strip()
+        self.secret = recovery_key or env.get("APP_AUTH_TOKEN", "").strip()
+        errors = []
+        if self.token:
+            if not REPOSITORY.fullmatch(self.repository) or any(part in {".", ".."} for part in self.repository.split("/")):
+                errors.append("GITHUB_BACKUP_REPOSITORY debe tener el formato propietario/repositorio; para esta instalación usa mariopegna17-svg/dots, sin https://github.com/.")
+            if len(self.secret) < 32:
+                if recovery_key:
+                    errors.append("DATA_BACKUP_KEY debe tener al menos 32 caracteres aleatorios. Conserva la clave usada en las copias anteriores.")
+                else:
+                    errors.append("APP_AUTH_TOKEN falta o tiene menos de 32 caracteres. Conserva tu contraseña de acceso y añade DATA_BACKUP_KEY con al menos 32 caracteres aleatorios en Render → Environment. Si ya tienes una copia, conserva su clave original.")
+        self.configuration_error = " ".join(errors)
+        # A missing setting must not take down authentication and the web app.
+        # Pause all remote operations instead of uploading an unrecoverable copy.
+        self.enabled = bool(self.token) and not self.configuration_error
         self.root.mkdir(parents=True, exist_ok=True)
         self.record_path = self.root / ".github-backup.json"
         self.restore_marker = self.root / ".github-restore.json"
@@ -53,7 +65,7 @@ class GitHubBackup:
         self.last_success = None
         self.last_upload = 0.0
         self.restored = False
-        self.error = ""
+        self.error = self.configuration_error
         self.dirty = threading.Event()
         self.lock = threading.Lock()
         self.worker = None
@@ -64,7 +76,7 @@ class GitHubBackup:
         if not secret and (self.root / ".auth-token").is_file():
             secret = (self.root / ".auth-token").read_text().strip()
         if len(secret) < 32:
-            raise BackupError("Falta una clave estable de al menos 32 caracteres para cifrar la copia.")
+            raise BackupError("Configura DATA_BACKUP_KEY con al menos 32 caracteres aleatorios y conserva esa clave para recuperar las copias.")
         key = base64.urlsafe_b64encode(hashlib.sha256(b"dots-backup-v1\0" + secret.encode()).digest())
         return Fernet(key)
 
@@ -249,7 +261,7 @@ class GitHubBackup:
 
     def sync(self):
         if not self.enabled:
-            raise BackupError("Configura GITHUB_BACKUP_TOKEN y GITHUB_BACKUP_REPOSITORY en Render para activar el guardado en GitHub.")
+            raise BackupError(self.configuration_error or "Configura GITHUB_BACKUP_TOKEN y GITHUB_BACKUP_REPOSITORY en Render para activar el guardado en GitHub.")
         with self.lock:
             self.syncing = True
             # New changes during capture/upload must remain pending.
@@ -290,7 +302,7 @@ class GitHubBackup:
         return {"configured": self.enabled, "repository": self.repository if self.enabled else "", "branch": self.branch,
             "restored": self.restored, "last_success": self.last_success, "pending": self.dirty.is_set(),
             "syncing": self.syncing, "error": self.error,
-            "message": "Copia cifrada automática; la clave de recuperación permanece fuera de GitHub." if self.enabled else "Los datos están en el disco local. Activa la copia de GitHub para recuperarlos si Render borra ese disco."}
+            "message": self.configuration_error or ("Copia cifrada automática; la clave de recuperación permanece fuera de GitHub." if self.enabled else "Los datos están en el disco local. Activa la copia de GitHub para recuperarlos si Render borra ese disco.")}
 
     async def loop(self):
         while True:
@@ -329,6 +341,8 @@ backup_service = None
 def configure_backup(data_dir):
     global backup_service
     backup_service = GitHubBackup(data_dir)
+    if backup_service.configuration_error:
+        logging.getLogger(__name__).warning("Copias de GitHub pausadas: %s", backup_service.configuration_error)
     backup_service.bootstrap()
 
 

@@ -13,10 +13,12 @@ La aplicación puede guardar una copia **cifrada** en la rama `dots-data` de tu 
    | `GITHUB_BACKUP_REPOSITORY` | `mariopegna17-svg/dots` |
    | `GITHUB_BACKUP_TOKEN` | El token que acabas de generar, como secreto |
 
-4. Conserva el **mismo `APP_AUTH_TOKEN`** ya configurado en Render, de al menos 32 caracteres. La copia utiliza una clave de cifrado derivada de ese secreto. No lo pegues en GitHub, en un commit ni en el chat. Si quieres separar recuperación y acceso, configura un `DATA_BACKUP_KEY` aleatorio de al menos 32 caracteres y consérvalo en Render desde la primera copia.
+4. Conserva el **mismo `APP_AUTH_TOKEN`** ya configurado en Render: es tu contraseña de acceso. Si tiene al menos 32 caracteres y no defines otra clave, la copia utiliza una clave de cifrado derivada de ese secreto. **Si tu contraseña es más corta**, añade `DATA_BACKUP_KEY` con una clave aleatoria de al menos 32 caracteres; puedes usar **Generate** al crear la variable en Render. Consérvala desde la primera copia. No publiques ninguna de las claves en GitHub ni en el chat.
 5. Guarda las variables y despliega el último commit de `main`. En **Ajustes → Conservar mis datos** verifica que figure el repositorio y la fecha de una copia confirmada. **Guardar ahora en GitHub** fuerza una comprobación sin esperar.
 
 Las variables pertenecen al entorno de Render y sobreviven a reinicios y despliegues. El token de GitHub permite guardar; la clave estable permite descifrar. No se incluyen las variables de arranque en el repositorio. Si cambias o pierdes la clave de recuperación, la copia anterior no podrá descifrarse. Cambiar solo el token de GitHub no cambia el cifrado.
+
+Si falta una variable o la clave de copia es demasiado corta, la web sigue arrancando con los datos locales y las copias quedan pausadas. **Ajustes → Conservar mis datos** y los registros de Render indican exactamente qué variable corregir. Usa `mariopegna17-svg/dots` como repositorio, sin `https://github.com/`. Guarda las variables y vuelve a desplegar. Una clave incorrecta al descifrar una copia existente sigue bloqueando la restauración para proteger esa copia; conserva la clave original y no generes otra.
 
 ## Qué conserva
 

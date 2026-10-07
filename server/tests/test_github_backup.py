@@ -4,10 +4,12 @@ from datetime import datetime, timezone, timedelta
 import hashlib
 import io
 import json
+import os
 from pathlib import Path
 import shutil
 import sqlite3
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -277,9 +279,76 @@ class GitHubBackupTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('fixture-private-github-token', str(raised.exception))
 
     def test_remote_configuration_requires_valid_repository_and_stable_key(self):
-        for change in ({'APP_AUTH_TOKEN': ''}, {'APP_AUTH_TOKEN': 'short'}, {'GITHUB_BACKUP_REPOSITORY': '../bad'}, {'GITHUB_BACKUP_REPOSITORY': ''}):
-            with self.assertRaises(BackupError): GitHubBackup(self.root, {**self.environment, **change})
+        for change, field in (({'APP_AUTH_TOKEN': ''}, 'DATA_BACKUP_KEY'), ({'APP_AUTH_TOKEN': 'short'}, 'DATA_BACKUP_KEY'),
+                              ({'GITHUB_BACKUP_REPOSITORY': '../bad'}, 'GITHUB_BACKUP_REPOSITORY'), ({'GITHUB_BACKUP_REPOSITORY': ''}, 'GITHUB_BACKUP_REPOSITORY'),
+                              ({'DATA_BACKUP_KEY': 'short'}, 'DATA_BACKUP_KEY')):
+            service = self.service(self.root, {**self.environment, **change})
+            with self.subTest(change=change):
+                service.bootstrap()
+                self.assertFalse(service.status()['configured'])
+                self.assertIn(field, service.status()['error'])
+                self.assertNotIn(self.environment['GITHUB_BACKUP_TOKEN'], service.status()['error'])
+                with self.assertRaisesRegex(BackupError, field): service.sync()
+                self.assertFalse(self.remote.calls)
         self.assertFalse(GitHubBackup(self.root, {}).status()['configured'])
+
+    async def test_invalid_configuration_pauses_workers_and_preserves_previous_copy(self):
+        self.backup.sync()
+        previous = self.remote.payload
+        previous_calls = list(self.remote.calls)
+        paused = self.service(self.root, {**self.environment, 'APP_AUTH_TOKEN': 'short'})
+        paused.bootstrap()
+        await paused.start()
+        self.assertIsNone(paused.worker)
+        self.storage.save_settings({'theme': 'light'})
+        await paused.stop()
+        self.assertEqual(self.remote.payload, previous)
+        self.assertEqual(self.remote.calls, previous_calls)
+        self.assertEqual(StorageService(self.root).get_settings()['theme'], 'light')
+
+    async def test_independent_recovery_key_preserves_short_owner_password(self):
+        env = {**self.environment, 'APP_AUTH_TOKEN': 'short-owner-password', 'DATA_BACKUP_KEY': 'fixture-independent-recovery-key-1234567890'}
+        service = self.service(self.root, env)
+        service.bootstrap(); service.sync()
+        restored = self.service(Path(self.temp.name) / 'independent-key-disk', env)
+        restored.bootstrap()
+        self.assertEqual(StorageService(restored.root).get_settings()['model_api_key'], 'fixture-nvidia-private')
+        self.assertTrue(restored.status()['configured'])
+        self.assertEqual(env['APP_AUTH_TOKEN'], 'short-owner-password')
+        blank_override = self.service(self.root, {**self.environment, 'DATA_BACKUP_KEY': '   '})
+        self.assertEqual(blank_override.secret, self.owner)
+
+    def test_cold_server_starts_with_incomplete_backup_configuration_and_reports_error_privately(self):
+        script = '''
+import asyncio
+import httpx
+from unittest.mock import patch
+with patch('app.services.github_backup.GitHubBackup.request', side_effect=AssertionError('No GitHub calls with invalid configuration')) as remote:
+    from app.main import app, backup_service
+    async def check():
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://testserver') as client:
+                assert (await client.get('/api/v1/health')).status_code == 200
+                assert (await client.get('/api/v1/persistence/status')).status_code == 401
+                client.headers['Authorization'] = 'Bearer short-owner-password'
+                response = await client.get('/api/v1/persistence/status')
+                assert response.status_code == 200
+                assert response.headers['cache-control'] == 'no-store'
+                assert response.json()['configured'] is False
+                assert 'DATA_BACKUP_KEY' in response.json()['error']
+                assert 'fixture-private-github-token' not in response.text
+                assert 'short-owner-password' not in response.text
+                failure = await client.post('/api/v1/persistence/sync')
+                assert failure.status_code == 409 and 'DATA_BACKUP_KEY' in failure.text
+                assert backup_service.worker is None
+    asyncio.run(check())
+    assert remote.call_count == 0
+'''
+        env = {**os.environ, **self.environment, 'APP_AUTH_TOKEN': 'short-owner-password', 'DATA_BACKUP_KEY': '',
+               'DATA_DIR': str(Path(self.temp.name) / 'cold-server'), 'COMPUTER_PROVIDER': 'fake',
+               'MODEL_API_KEY': '', 'NVIDIA_API_KEY': '', 'COMPOSIO_API_KEY': '', 'YDC_API_KEY': ''}
+        result = subprocess.run([sys.executable, '-c', script], env=env, cwd=Path(__file__).resolve().parents[1], capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
 
 if __name__ == '__main__':

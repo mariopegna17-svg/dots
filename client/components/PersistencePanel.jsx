@@ -36,7 +36,7 @@ export default function PersistencePanel() {
       <button type="button" className="primary-button" disabled={Boolean(busy) || state.syncing} onClick={sync}>{busy === "sync" ? "Guardando…" : "Guardar ahora en GitHub"}</button>
     </> : <>
       <p className="persistence-local">Ahora se usa el disco local. Render Free puede borrarlo; activa la copia para conservar tus datos.</p>
-      <ol><li>En GitHub crea un token limitado a este repositorio, con <strong>Contents: Read and write</strong>.</li><li>En Render → Environment añade <code>GITHUB_BACKUP_TOKEN</code> y <code>GITHUB_BACKUP_REPOSITORY</code> con <strong>mariopegna17-svg/dots</strong>.</li><li>Conserva el mismo <code>APP_AUTH_TOKEN</code>. Permite descifrar la copia al arrancar.</li></ol>
+      <ol><li>En GitHub crea un token limitado a este repositorio, con <strong>Contents: Read and write</strong>.</li><li>En Render → Environment añade <code>GITHUB_BACKUP_TOKEN</code> y <code>GITHUB_BACKUP_REPOSITORY</code> con <strong>mariopegna17-svg/dots</strong>, sin la URL de GitHub.</li><li>Si tu <code>APP_AUTH_TOKEN</code> tiene menos de 32 caracteres, conserva tu contraseña y añade <code>DATA_BACKUP_KEY</code> con una clave aleatoria de al menos 32 caracteres. Guarda siempre la misma clave: permite descifrar las copias.</li></ol>
       <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener noreferrer" className="text-button">Crear token de GitHub</a>
     </>}
     <small>Se comprueban los cambios cada 30 segundos y se hace una copia al cerrar normalmente el servidor. «Guardar ahora» confirma la copia sin esperar. Un cierre forzado puede perder los cambios posteriores a la última copia. WhatsApp puede pedir renovar la vinculación si la revoca.</small>
