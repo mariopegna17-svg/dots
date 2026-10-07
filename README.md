@@ -9,7 +9,7 @@ La referencia del producto es [Introducing Dots, de OpenAI](https://openai.com/e
 - Interfaz de chat con varios agentes, avatares y respuestas en streaming.
 - [Trabajo en equipo](TEAM-AND-APP.md): de dos a cuatro Dots aportan, revisan las ideas de sus compañeros y entregan una respuesta final del coordinador.
 - Temas Liquid Glass, acentos, espaciado y control de animaciones; [instalación en la pantalla de inicio del iPhone](TEAM-AND-APP.md) con icono de cristal transparente.
-- [Conectores guiados y YouTube](CONNECTORS.md): conexión OAuth, revisión de vídeos y subida al canal con aprobación. GitHub permite consultar y crear incidencias.
+- [Conectores guiados](CONNECTORS.md): el chat descubre y utiliza las acciones reales de Gmail, Calendar, Drive, Notion, Slack, GitHub y las demás cuentas autorizadas. Los envíos y cambios requieren revisión de sus datos. YouTube permite preparar, revisar y subir vídeos al canal.
 - NVIDIA NIM mediante `/v1/chat/completions`, autenticación Bearer y llamadas a herramientas. Los modelos mantienen su ID exacto.
 - Modelo predeterminado `nvidia/nemotron-3-super-120b-a12b`, observado en el catálogo público de NVIDIA el 6 de octubre de 2026. Puedes cambiarlo en Ajustes → Proveedor de IA y en el selector de cada agente.
 - Memoria por agente en SQLite: añadir, consultar y borrar preferencias. Se incluye en futuras conversaciones y rutinas. El agente puede guardar un recuerdo con la herramienta `remember`.
@@ -79,7 +79,7 @@ Para exponerlo fuera de loopback, configura un reverse proxy HTTPS, `AUTH_COOKIE
 
 ## Validación en este entorno
 
-167 pruebas automatizadas pasadas y compilación de producción completada. Se comprobó una tarea real con NVIDIA: dos Dots aportaron análisis, revisaron las ideas del otro y entregaron una síntesis del coordinador. Las credenciales siguen cifradas y los datos temporales de prueba se eliminaron.
+185 pruebas automatizadas pasadas y compilación de producción completada. Se comprobó una tarea real con NVIDIA: dos Dots aportaron análisis, revisaron las ideas del otro y entregaron una síntesis del coordinador. El modelo real también descubrió Gmail, eligió una acción conforme a su esquema y resumió los correos de prueba que devolvió el adaptador controlado; no se accedió a una cuenta de correo externa ni se enviaron mensajes. Las credenciales siguen cifradas y los datos temporales de prueba se eliminaron.
 
 Las comprobaciones de navegador cubrieron temas guardados y previsualizados, equipos, conectores, revisión de vídeos, navegación móvil y la instalación web. El contenedor final funcionó con un límite de 512 MB, sin reinicios ni errores JavaScript. Las API privadas rechazaron visitantes anónimos y el service worker almacenó solo el icono y la página sin conexión.
 

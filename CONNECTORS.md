@@ -12,7 +12,11 @@ La clave de NVIDIA sirve para la inferencia de los Dots. La clave de Composio si
 
 Cada instalación utiliza una identidad propia en Composio. Si habías conectado una cuenta con la versión antigua, autorízala de nuevo desde esta pantalla. Las conexiones de otro usuario o de otra instalación no se reutilizan automáticamente.
 
-YouTube y GitHub tienen acciones implementadas. Las demás aplicaciones permiten vincular una cuenta; sus acciones aún no están integradas en el agente. WhatsApp tiene su propia conexión por QR en **Llamadas y WhatsApp** y no requiere Composio.
+Las aplicaciones conectadas ofrecen sus acciones al chat: Gmail, Calendar, Drive, Notion, Slack, GitHub y las demás disponibles en Composio. El Dot consulta las cuentas activas, busca las acciones y obtiene sus parámetros reales antes de usarlas. Pulsa **Ver acciones** en una cuenta conectada para comprobar sus herramientas, buscar y consultar más resultados. Los permisos de tu cuenta determinan qué acciones acepta el proveedor; conectar una aplicación no concede permisos nuevos automáticamente.
+
+Prueba con «Resume mis últimos 5 correos de Gmail», «Busca en Drive el documento sobre mi proyecto» o «Consulta mis próximos eventos del calendario». Las consultas etiquetadas por Composio como de solo lectura pueden ejecutarse directamente. Enviar, crear, cambiar o eliminar requiere una tarjeta de aprobación con la aplicación, la acción y los datos concretos. Las herramientas sin una clasificación clara también requieren revisión. Una aprobación no puede reenviar la misma acción ni aplicarse a otra cuenta si cambia la conexión. Los equipos y las rutinas conservan su límite de herramientas de lectura web; no acceden automáticamente a estas cuentas privadas.
+
+WhatsApp tiene su propia conexión por QR en **Llamadas y WhatsApp** y no requiere Composio. Las subidas de archivos a YouTube mantienen el flujo de borradores y revisión descrito a continuación.
 
 ## Subir un vídeo a YouTube
 
@@ -32,6 +36,7 @@ El envío usa el protocolo de subida reanudable de YouTube a través del proxy a
 ## Permisos, privacidad y cuotas
 
 - La autorización de Google es necesaria: guardar la API key de Composio no conecta tu canal por sí solo.
+- Si usas una clave de proyecto con permisos restringidos de Composio, debe permitir consultar cuentas y herramientas y ejecutar acciones. Una denegación de esa clave es distinta de los permisos OAuth de Gmail o YouTube.
 - Si YouTube rechaza el permiso, desconecta y vuelve a conectar YouTube para renovar la autorización de subida.
 - Composio tiene sus propios planes y cuotas. YouTube aplica tanto cuotas de API como límites diarios de vídeos por canal. No se promete uso ilimitado.
 - Los proyectos de API de YouTube sin verificar pueden limitar las subidas a privadas, aunque solicites público. Dots muestra la privacidad devuelta por YouTube. Para cuotas propias o uso de producción, configura tus credenciales OAuth de Google en Composio: [guía de credenciales de Google](https://composio.dev/auth/googleapps). Dots usa tu configuración personalizada si hay una única activa; con varias, nombra la elegida `Open Dots · youtube · uploads`. Incluye los permisos `youtube.upload` y `youtube.readonly`.

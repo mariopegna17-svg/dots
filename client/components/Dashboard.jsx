@@ -229,7 +229,7 @@ export default function Dashboard({ onLogout }) {
             />
           )}
           {activeTab === "marketplace" && (
-            <Marketplace onOpenSettings={() => setIsSettingsOpen(true)} onOpenContact={() => selectTab("contact")} />
+            <Marketplace onOpenSettings={() => setIsSettingsOpen(true)} onOpenContact={() => selectTab("contact")} onOpenChat={() => selectTab("chat")} />
           )}
           {activeTab === "audit" && <AuditPanel />}
           {activeTab === "contact" && (

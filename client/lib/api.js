@@ -188,6 +188,7 @@ export const configureConnectors = (apiKey) => connectorRequest('/setup', {
   method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ api_key: apiKey }),
 });
 export const fetchYouTubeChannel = () => connectorRequest('/youtube/channel');
+export const fetchConnectorActions = (slug, query = '', cursor = '') => connectorRequest(`/${encodeURIComponent(slug)}/actions?query=${encodeURIComponent(query)}&cursor=${encodeURIComponent(cursor)}`);
 export const fetchYouTubeUploads = () => connectorRequest('/youtube/uploads');
 export function prepareYouTubeVideo(file, metadata) {
   const data = new FormData();

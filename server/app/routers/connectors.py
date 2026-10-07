@@ -11,14 +11,15 @@ from app.services.composio_service import ConnectorServiceError
 from app.services.connector_service import connector_service
 from app.services.storage_service import storage_service
 from app.services.youtube_service import youtube_service
+from app.services.connected_tools import connected_tools
 
 router = APIRouter(prefix="/api/v1/connectors", tags=["connectors"])
 CURATED = [
     {"slug": "youtube", "label": "YouTube", "blurb": "Sube vídeos a tu canal con título, descripción y privacidad.", "domain": "youtube.com"},
     {"slug": "github", "label": "GitHub", "blurb": "Consulta incidencias y pide a tu Dot que cree una con tu aprobación.", "domain": "github.com"},
-    {"slug": "gmail", "label": "Gmail", "blurb": "Vincula tu cuenta de correo de Google.", "domain": "gmail.com"},
-    {"slug": "googlecalendar", "label": "Google Calendar", "blurb": "Vincula tu calendario de Google.", "domain": "calendar.google.com"},
-    {"slug": "googledrive", "label": "Google Drive", "blurb": "Vincula tu cuenta de archivos de Google.", "domain": "drive.google.com"},
+    {"slug": "gmail", "label": "Gmail", "blurb": "Consulta y resume correos; revisa las respuestas antes de enviarlas.", "domain": "gmail.com"},
+    {"slug": "googlecalendar", "label": "Google Calendar", "blurb": "Consulta eventos y pide a tu Dot que prepare cambios.", "domain": "calendar.google.com"},
+    {"slug": "googledrive", "label": "Google Drive", "blurb": "Busca archivos y trabaja con sus acciones disponibles.", "domain": "drive.google.com"},
     {"slug": "notion", "label": "Notion", "blurb": "Vincula tu espacio de páginas y proyectos.", "domain": "notion.so"},
     {"slug": "slack", "label": "Slack", "blurb": "Vincula tu espacio de trabajo.", "domain": "slack.com"},
     {"slug": "googlesheets", "label": "Google Sheets", "blurb": "Vincula tus hojas de cálculo.", "domain": "sheets.google.com"},
@@ -101,6 +102,22 @@ async def connection_status(services: str = ""):
                 if account.get("status") == "ACTIVE":
                     status[slug] = {"connected": True}
         return {"services": status}
+    except ConnectorServiceError as exc:
+        fail(exc, 502)
+
+
+@router.get("/apps")
+async def connected_apps():
+    try:
+        return await connected_tools.apps()
+    except ConnectorServiceError as exc:
+        fail(exc, 502)
+
+
+@router.get("/{slug}/actions")
+async def available_actions(slug: str, query: str = "", cursor: str = ""):
+    try:
+        return await connected_tools.search(slug, query, cursor)
     except ConnectorServiceError as exc:
         fail(exc, 502)
 

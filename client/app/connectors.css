@@ -28,6 +28,20 @@
 .connector-footer p { width: 100%; }
 .connector-pagination { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 18px; }
 .connector-pagination span { font-size: 11px; color: var(--muted); }
+.connector-actions-button { width: 100%; justify-content: center; margin-top: 9px; }
+.connector-actions-modal { width: min(640px, 100%); }
+.connector-actions-modal > p { color: var(--muted); font-size: 12px; line-height: 1.8; margin: 16px 0; }
+.connector-actions-modal .connector-example { color: var(--foreground); padding: 12px; background: var(--surface-raised); border-radius: 12px; }
+.connector-actions-search { display: flex; gap: 10px; margin: 20px 0; }
+.connector-actions-search input { min-width: 0; flex: 1; border: 1px solid var(--line); border-radius: 12px; background: var(--background); padding: 10px; color: var(--foreground); }
+.connector-action-list { display: grid; gap: 10px; max-height: 40dvh; overflow: auto; }
+.connector-action-list article { padding: 14px; border: 1px solid var(--line); border-radius: 14px; }
+.connector-action-list header { display: flex; gap: 8px; flex-wrap: wrap; justify-content: space-between; font-size: 12px; }
+.connector-action-list header span { color: var(--muted); font-size: 10px; }
+.connector-action-list p { font-size: 11px; line-height: 1.7; color: var(--muted); margin-top: 8px; overflow-wrap: anywhere; }
+.connector-actions-modal footer { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 12px; margin-top: 20px; }
+.connector-approval-details { margin: 14px 0; font-size: 12px; }
+.connector-approval-details pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow: auto; padding: 12px; margin-top: 10px; border: 1px solid var(--line); border-radius: 12px; }
 .youtube-uploads { display: grid; gap: 10px; margin-top: 22px; }
 .youtube-upload-status { display: flex; gap: 12px; align-items: flex-start; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px; }
 .youtube-upload-status > svg { flex-shrink: 0; margin-top: 3px; color: var(--muted); }

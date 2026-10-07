@@ -6,6 +6,7 @@ export default function ApprovalCard({ approval, onRespond }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const communication = approval.tool?.startsWith("communication");
+  const connector = approval.tool?.startsWith("connector.");
   async function decide(action) {
     setBusy(true);
     setError("");
@@ -25,6 +26,7 @@ export default function ApprovalCard({ approval, onRespond }) {
         <strong>Revisa esta acción</strong>
       </header>
       <p>{approval.summary}</p>
+      {connector && approval.arguments && <details className="connector-approval-details" open><summary>Datos de la acción</summary><pre>{JSON.stringify(approval.arguments, null, 2)}</pre></details>}
       <small>
         {communication
           ? "Se usará tu cuenta de Twilio y puede tener coste."

@@ -5,12 +5,13 @@ import { FaGithub, FaWhatsapp, FaYoutube } from "react-icons/fa";
 import { SiGmail, SiGooglecalendar, SiGoogledrive, SiNotion, SiSlack } from "react-icons/si";
 import { authorizeConnector, configureConnectors, disconnectConnector, discardYouTubeVideo, fetchConnectionStatus, fetchConnectorCatalog, fetchYouTubeChannel, fetchYouTubeUploads } from "../lib/api";
 import Modal from "./Modal";
+import ConnectorActions from "./ConnectorActions";
 import YouTubePublisher, { YouTubeUploadStatus } from "./YouTubePublisher";
 
 const ICONS = { youtube: FaYoutube, github: FaGithub, gmail: SiGmail, googlecalendar: SiGooglecalendar, googledrive: SiGoogledrive, notion: SiNotion, slack: SiSlack };
 function AppIcon({ app }) { const Icon = ICONS[app.slug] || FiLink; return <span className={`connector-app-icon connector-icon-${app.slug}`}><Icon /></span>; }
 
-export default function Marketplace({ onOpenSettings, onOpenContact }) {
+export default function Marketplace({ onOpenSettings, onOpenContact, onOpenChat }) {
   const [apps, setApps] = useState([]);
   const [connected, setConnected] = useState({});
   const [configured, setConfigured] = useState(false);
@@ -23,6 +24,7 @@ export default function Marketplace({ onOpenSettings, onOpenContact }) {
   const [busy, setBusy] = useState("");
   const [pending, setPending] = useState(null);
   const [disconnecting, setDisconnecting] = useState(null);
+  const [actionApp, setActionApp] = useState(null);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [channel, setChannel] = useState(null);
@@ -147,10 +149,11 @@ export default function Marketplace({ onOpenSettings, onOpenContact }) {
       {uploads.length > 0 && <div className="youtube-uploads">{uploads.slice(0, 5).map((item) => <YouTubeUploadStatus key={item.id} item={item} onReview={(draft) => setPublisher({ draft })} onRemove={removeUpload} />)}</div>}
     </article>
     <div className="connector-controls"><div className="connector-search"><FiSearch /><input value={search} onChange={(e) => { setSearch(e.target.value); setPage(0); }} aria-label="Buscar aplicaciones" placeholder="Busca una aplicación…" /></div><button className="text-button" onClick={() => { setExpanded((v) => !v); setPage(0); }}>{expanded ? "Ver recomendadas" : "Ver todas"}</button></div>
-    {loading && !apps.length ? <p className="muted" role="status">Cargando conectores…</p> : <div className="connector-grid">{visible.filter((a) => a.slug !== "youtube").map((app) => <article key={app.slug} className="connector-card"><div className="connector-card-top"><AppIcon app={app} />{connected[app.slug]?.connected && <span className="connector-connected"><FiCheck /> Conectada</span>}</div><h2>{app.label}</h2><p>{app.blurb}</p><button className="connector-button" disabled={Boolean(busy) || Boolean(pending)} onClick={() => connected[app.slug]?.connected ? setDisconnecting(app) : connect(app)}>{busy === app.slug ? "Conectando…" : connected[app.slug]?.connected ? "Desconectar" : "Conectar"}<FiLink /></button></article>)}</div>}
+    {loading && !apps.length ? <p className="muted" role="status">Cargando conectores…</p> : <div className="connector-grid">{visible.filter((a) => a.slug !== "youtube").map((app) => <article key={app.slug} className="connector-card"><div className="connector-card-top"><AppIcon app={app} />{connected[app.slug]?.connected && <span className="connector-connected"><FiCheck /> Conectada</span>}</div><h2>{app.label}</h2><p>{app.blurb}</p><button className="connector-button" disabled={Boolean(busy) || Boolean(pending)} onClick={() => connected[app.slug]?.connected ? setDisconnecting(app) : connect(app)}>{busy === app.slug ? "Conectando…" : connected[app.slug]?.connected ? "Desconectar" : "Conectar"}<FiLink /></button>{connected[app.slug]?.connected && <button className="text-button connector-actions-button" onClick={() => setActionApp(app)}>Ver acciones</button>}</article>)}</div>}
     {!loading && !visible.length && <p className="muted">No hay aplicaciones con ese nombre.</p>}
     {matching.length > 24 && <div className="connector-pagination"><button className="compact-button" disabled={page === 0} onClick={() => setPage((n) => n - 1)}>Anterior</button><span>Página {page + 1} de {Math.ceil(matching.length / 24)}</span><button className="compact-button" disabled={(page + 1) * 24 >= matching.length} onClick={() => setPage((n) => n + 1)}>Siguiente</button></div>}
-    <div className="connector-footer"><p>YouTube y GitHub tienen acciones integradas. En las demás aplicaciones puedes vincular la cuenta; sus acciones se añadirán más adelante.</p><button className="text-button" onClick={onOpenContact}><FaWhatsapp /> WhatsApp por QR</button><button className="text-button" onClick={onOpenSettings}><FiSettings /> Ajustes</button></div>
+    <div className="connector-footer"><p>Los Dots buscan y utilizan las acciones disponibles de tus cuentas conectadas. Los permisos de cada cuenta determinan qué pueden hacer.</p><button className="text-button" onClick={onOpenContact}><FaWhatsapp /> WhatsApp por QR</button><button className="text-button" onClick={onOpenSettings}><FiSettings /> Ajustes</button></div>
+    {actionApp && <ConnectorActions app={actionApp} onClose={() => setActionApp(null)} onChat={() => { setActionApp(null); onOpenChat?.(); }} />}
     {publisher && <YouTubePublisher draft={publisher.draft} onClose={() => setPublisher(null)} onChanged={refreshUploads} />}
     {disconnecting && <Modal onClose={() => { if (!busy) setDisconnecting(null); }} titleId="connector-disconnect-title" className="connector-disconnect"><header className="modal-heading"><h2 id="connector-disconnect-title">Desconectar {disconnecting.label}</h2><button className="icon-button" disabled={Boolean(busy)} onClick={() => setDisconnecting(null)} aria-label="Cancelar desconexión"><FiX /></button></header><p>Se eliminará la conexión de esta aplicación con tu espacio. Podrás autorizarla de nuevo cuando quieras.</p><footer><button className="compact-button" disabled={Boolean(busy)} onClick={() => setDisconnecting(null)}>Cancelar</button><button className="primary-button" disabled={Boolean(busy)} onClick={removeConnection}>{busy ? "Desconectando…" : "Desconectar cuenta"}</button></footer></Modal>}
   </div></section>;

@@ -50,15 +50,19 @@ class ConnectorService:
                 raise
             raise ConnectorServiceError("No se pudo completar la conexión con Composio. Vuelve a intentarlo.") from exc
 
-    async def accounts(self, slugs):
-        for slug in slugs:
+    async def accounts(self, slugs=None):
+        for slug in slugs or []:
             self.validate_slug(slug)
         owner = self.user_id()
-        params = {"user_ids": [owner], "toolkit_slugs": slugs, "limit": 100}
+        params = {"user_ids": [owner], "limit": 100}
+        if slugs is not None:
+            params["toolkit_slugs"] = slugs
         accounts = []
         for _ in range(10):
             result = await self.request("GET", "/connected_accounts", params=params)
-            accounts.extend(a for a in result.get("items", []) if (a.get("toolkit") or {}).get("slug") in slugs and a.get("user_id", owner) == owner)
+            accounts.extend(a for a in result.get("items", []) if
+                            (slugs is None or (a.get("toolkit") or {}).get("slug") in slugs)
+                            and a.get("user_id", owner) == owner)
             cursor = result.get("next_cursor")
             if not cursor:
                 return accounts
