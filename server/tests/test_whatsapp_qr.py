@@ -4,6 +4,7 @@ import socket
 import json
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -309,3 +310,139 @@ class WhatsAppQRTests(unittest.IsolatedAsyncioTestCase):
         finally:
             await service.stop()
         self.assertEqual(service.process.returncode, 0)
+
+    def private_service(self, storage=None):
+        storage = storage or self.storage
+        service = WhatsAppQRService(storage, CommunicationService(storage))
+        with socket.socket() as listener:
+            listener.bind(('127.0.0.1', 0))
+            service.port = listener.getsockname()[1]
+        return service
+
+    def delayed_spawn(self, delay):
+        spawn = asyncio.create_subprocess_exec
+        async def launch(node, script, **kwargs):
+            # Delay the real entrypoint without loading or connecting an account.
+            source = f'await new Promise(resolve => setTimeout(resolve, {delay})); await import(process.argv[1]);'
+            return await spawn(node, '--input-type=module', '-e', source, str(Path(script).as_uri()), **kwargs)
+        return launch
+
+    async def test_real_bridge_can_take_longer_than_four_seconds_to_start(self):
+        service = self.private_service()
+        service.startup_timeout = 10
+        try:
+            with patch('app.services.whatsapp_qr_service.asyncio.create_subprocess_exec', side_effect=self.delayed_spawn(4500)) as spawn:
+                await service.start()
+                self.assertTrue(service.available)
+                self.assertEqual((await service.status())['state'], 'disconnected')
+                self.assertTrue(await service.launch())
+                self.assertEqual(spawn.await_count, 1)
+        finally:
+            await service.stop()
+
+    async def test_live_bridge_recovers_after_initial_timeout_without_second_process(self):
+        service = self.private_service()
+        service.startup_timeout = 0.1
+        try:
+            with patch('app.services.whatsapp_qr_service.asyncio.create_subprocess_exec', side_effect=self.delayed_spawn(1000)) as spawn:
+                await service.start()
+                self.assertFalse(service.available)
+                original_pid = service.process.pid
+                deadline = asyncio.get_running_loop().time() + 6
+                while not service.available and asyncio.get_running_loop().time() < deadline:
+                    await asyncio.sleep(0.05)
+                self.assertTrue(service.available)
+                self.assertEqual(service.error, '')
+                self.assertEqual((await service.status())['state'], 'disconnected')
+                self.assertEqual(service.process.pid, original_pid)
+                self.assertEqual(spawn.await_count, 1)
+                self.assertEqual(service.restart_count, 0)
+        finally:
+            await service.stop()
+
+    async def test_saved_session_errors_are_specific_and_do_not_overwrite_credentials(self):
+        for code, key in ((21, None), (22, b'bad-key'), (23, b'x' * 32)):
+            with self.subTest(code=code):
+                storage = StorageService(Path(self.directory.name) / str(code))
+                directory = storage.data_dir / 'whatsapp'
+                directory.mkdir()
+                encrypted = b'fixture-invalid-encrypted-session-do-not-overwrite'
+                (directory / 'session.enc').write_bytes(encrypted)
+                if key is not None:
+                    (directory / 'session.key').write_bytes(key)
+                service = self.private_service(storage)
+                try:
+                    with self.assertLogs('uvicorn.error', level='WARNING') as logs:
+                        await service.start()
+                    self.assertFalse(service.available)
+                    self.assertEqual(service.process.returncode, code)
+                    self.assertIn('sesión', (await service.status())['error'])
+                    self.assertIn('no borres', service.error)
+                    await asyncio.sleep(0.05)
+                    self.assertEqual(service.restart_count, 0)
+                    self.assertEqual((directory / 'session.enc').read_bytes(), encrypted)
+                    self.assertEqual((directory / 'session.key').read_bytes() if (directory / 'session.key').exists() else None, key)
+                    self.assertNotIn(encrypted.decode(), '\n'.join(logs.output))
+                    self.assertNotIn(service.token, '\n'.join(logs.output))
+                finally:
+                    await service.stop()
+
+    async def test_occupied_private_port_has_actionable_error(self):
+        service = self.private_service()
+        try:
+            with socket.socket() as occupied:
+                occupied.bind(('127.0.0.1', service.port))
+                occupied.listen()
+                await service.start()
+                self.assertFalse(service.available)
+                self.assertEqual(service.process.returncode, 25)
+                self.assertIn('ocupado', service.error)
+        finally:
+            await service.stop()
+
+    async def test_recovered_bridge_resumes_saved_scope_once(self):
+        service = self.private_service()
+        service.process = SimpleNamespace(returncode=None)
+        self.storage.save_settings({'whatsapp_qr_enabled': True, 'whatsapp_qr_mode': 'separate', 'whatsapp_qr_owner_phone_number': '+34699999999'})
+        calls = []
+        state = {'state': 'disconnected', 'connection_id': 'fixture-session', 'qr': None, 'error': ''}
+        def transport(request):
+            self.assertEqual(request.headers['authorization'], 'Bearer ' + service.token)
+            calls.append(request)
+            return httpx.Response(200, json=state)
+        async with httpx.AsyncClient(base_url=f'http://127.0.0.1:{service.port}', headers={'Authorization': 'Bearer ' + service.token}, transport=httpx.MockTransport(transport)) as client:
+            service.client = client
+            service.error = 'Previous startup timeout'
+            self.assertTrue(await service.probe_ready())
+            self.assertTrue(await service.probe_ready())
+            connects = [request for request in calls if request.url.path == '/connect']
+            self.assertEqual(len(connects), 1)
+            self.assertEqual(json.loads(connects[0].content), {'mode': 'separate', 'owner_phone_number': '+34699999999'})
+            self.assertEqual(service.error, '')
+
+    async def test_ready_check_requires_valid_private_bridge_response(self):
+        service = self.private_service()
+        service.process = SimpleNamespace(returncode=None)
+        for payload in ([], {'state': []}, {'state': 'connected'}, {'state': 'connected', 'connection_id': ''}, {'state': 'unrelated', 'connection_id': 'fixture-session'}):
+            async with httpx.AsyncClient(base_url='http://127.0.0.1', transport=httpx.MockTransport(lambda request: httpx.Response(200, json=payload))) as client:
+                service.client = client
+                self.assertFalse(await service.probe_ready())
+                self.assertFalse(service.available)
+
+    async def test_failed_session_resume_keeps_bridge_usable_for_manual_connect(self):
+        service = self.private_service()
+        service.process = SimpleNamespace(returncode=None)
+        self.storage.save_settings({'whatsapp_qr_enabled': True})
+        state = {'state': 'disconnected', 'connection_id': 'fixture-session', 'qr': None, 'error': ''}
+        fail_connect = True
+        def transport(request):
+            return httpx.Response(409 if request.url.path == '/connect' and fail_connect else 200, json=state)
+        async with httpx.AsyncClient(base_url='http://127.0.0.1', transport=httpx.MockTransport(transport)) as client:
+            service.client = client
+            self.assertTrue(await service.probe_ready())
+            self.assertTrue(service.available)
+            self.assertIn('Pulsa Conectar WhatsApp', (await service.status())['error'])
+            fail_connect = False
+            result = await service.connect(self.config)
+            self.assertTrue(result['available'])
+            self.assertEqual(result['error'], '')

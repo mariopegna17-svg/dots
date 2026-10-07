@@ -1,12 +1,25 @@
 import { createServer } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
 import { join } from 'node:path';
-import { AuthStore } from './auth-store.mjs';
-import { Bridge } from './bridge.mjs';
-
 const token = process.env.WHATSAPP_BRIDGE_TOKEN;
-if (!token || token.length < 32) throw new Error('Private bridge token is required');
-const bridge = new Bridge(new AuthStore(join(process.env.DATA_DIR || '../server/.data', 'whatsapp')));
+if (!token || token.length < 32) process.exit(27);
+let AuthStore, Bridge;
+try {
+  // Heavy dependencies can take several seconds to load on a small instance.
+  [{ AuthStore }, { Bridge }] = await Promise.all([import('./auth-store.mjs'), import('./bridge.mjs')]);
+} catch {
+  // Codes are the only diagnostics exposed; library errors can contain secrets.
+  process.exit(20);
+}
+let bridge;
+try {
+  bridge = new Bridge(new AuthStore(join(process.env.DATA_DIR || '../server/.data', 'whatsapp')));
+} catch (error) {
+  if (['EACCES', 'EPERM'].includes(error.code)) process.exit(24);
+  if (error.message === 'Missing WhatsApp encryption key') process.exit(21);
+  if (error.message === 'Invalid WhatsApp encryption key') process.exit(22);
+  process.exit(23);
+}
 const equal = (a, b) => a.length === b.length && timingSafeEqual(a, b);
 const server = createServer(async (request, response) => {
   response.setHeader('Content-Type', 'application/json');
@@ -41,7 +54,12 @@ const server = createServer(async (request, response) => {
     response.writeHead(409).end(JSON.stringify({ error: 'No se pudo completar la operación de WhatsApp. Revisa el estado e inténtalo de nuevo.' }));
   }
 });
-server.listen(Number(process.env.WHATSAPP_BRIDGE_PORT || 8787), '127.0.0.1', () => console.log('Dots WhatsApp bridge listening on loopback'));
+server.on('error', error => process.exit(error.code === 'EADDRINUSE' ? 25 : 26));
+try {
+  server.listen(Number(process.env.WHATSAPP_BRIDGE_PORT || 8787), '127.0.0.1', () => console.log('Dots WhatsApp bridge listening on loopback'));
+} catch {
+  process.exit(26);
+}
 let shuttingDown = false;
 async function shutdown() {
   if (shuttingDown) return;

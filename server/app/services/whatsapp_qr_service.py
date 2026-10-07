@@ -19,6 +19,20 @@ from app.services.storage_service import storage_service
 
 logger = logging.getLogger("uvicorn.error")
 
+# Exit codes emitted by our entrypoint; third-party output stays private.
+STARTUP_ERRORS = {
+    20: "No se pudieron cargar las dependencias de WhatsApp. Despliega la última versión en Render.",
+    21: "Falta la clave de la sesión guardada de WhatsApp. Recupera la copia completa de GitHub; no borres la sesión.",
+    22: "La clave de la sesión guardada de WhatsApp no es válida. Recupera la copia completa de GitHub; no borres la sesión.",
+    23: "No se pudo abrir la sesión cifrada de WhatsApp. Revisa la recuperación de la copia de GitHub; no borres la sesión.",
+    24: "WhatsApp no puede acceder a su carpeta de datos. Revisa los permisos de DATA_DIR en el servidor.",
+    25: "El puerto interno de WhatsApp está ocupado. Reinicia el servicio de Render y evita arrancar dos conectores en el mismo puerto.",
+    26: "WhatsApp no pudo abrir su puerto interno. Revisa WHATSAPP_BRIDGE_PORT y reinicia el servicio.",
+    27: "La clave interna del servicio de WhatsApp no es válida. Reinicia el servicio de Render.",
+}
+PERMANENT_STARTUP_ERRORS = {20, 21, 22, 23, 24, 27}
+BRIDGE_STATES = {"disconnected", "connecting", "qr", "connected", "reconnecting", "error"}
+
 
 class WhatsAppQRSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -52,6 +66,8 @@ class WhatsAppQRService:
         self.available = False
         self.error = ""
         self.restart_count = 0
+        self.startup_timeout = 60
+        self.exit_reported = False
 
     def config(self):
         saved = self.storage.get_settings()
@@ -82,6 +98,8 @@ class WhatsAppQRService:
             state = await self.request("GET", "/status")
         except CommunicationError as exc:
             state = {"state": "unavailable", "error": str(exc), "qr": None, "account_phone": ""}
+        if config["enabled"] and self.error and not state.get("error"):
+            state["error"] = self.error
         return {**state, **config, "available": self.available, "inference_ready": bool(self.storage.get_settings().get("model_api_key"))}
 
     async def owner_status(self):
@@ -144,12 +162,14 @@ class WhatsAppQRService:
         self.storage.save_settings({"whatsapp_qr_" + key: value for key, value in data.model_dump().items()})
         if self.config()["enabled"]:
             await self.request("POST", "/connect", {"mode": data.mode, "owner_phone_number": data.owner_phone_number})
+            self.error = ""
         return await self.status()
 
     async def connect(self, data):
         self.validate(data)
         # Node validates the scope before credentials can be used.
         await self.request("POST", "/connect", {"mode": data.mode, "owner_phone_number": data.owner_phone_number, "renew": True})
+        self.error = ""
         self.storage.save_settings({"whatsapp_qr_enabled": True, **{"whatsapp_qr_" + key: value for key, value in data.model_dump().items()}})
         return await self.status()
 
@@ -187,7 +207,59 @@ class WhatsAppQRService:
             self.communications.finish(event_id, "failed", error=str(exc) if isinstance(exc, CommunicationError) else "La IA no pudo responder. Comprueba NVIDIA y el modelo en Ajustes.")
         await self.request("POST", "/ack", {"id": event["id"]})
 
+    def record_exit(self):
+        self.available = False
+        code = self.process.returncode
+        self.error = STARTUP_ERRORS.get(code, "El servicio de WhatsApp se ha detenido. Reinicia el servicio en Render si no se recupera.")
+        if not self.exit_reported:
+            logger.warning("WhatsApp private bridge stopped (exit code %s). %s", code, self.error)
+            self.exit_reported = True
+
+    async def probe_ready(self):
+        if not self.client or not self.process or self.process.returncode is not None:
+            return False
+        try:
+            response = await self.client.get("/status", timeout=1)
+            if response.status_code != 200:
+                return False
+            state = response.json()
+            if not isinstance(state, dict) or not isinstance(state.get("state"), str) or state["state"] not in BRIDGE_STATES or not isinstance(state.get("connection_id"), str) or not state["connection_id"]:
+                return False
+        except (httpx.HTTPError, ValueError):
+            return False
+        if self.process.returncode is not None:
+            return False
+        was_available = self.available
+        self.available = True
+        if not was_available:
+            self.error = ""
+            logger.info("WhatsApp private bridge ready.")
+            if self.config()["enabled"]:
+                try:
+                    data = WhatsAppQRSettings(**{key: value for key, value in self.config().items() if key != "enabled"})
+                    await self.request("POST", "/connect", {"mode": data.mode, "owner_phone_number": data.owner_phone_number})
+                except (CommunicationError, ValueError):
+                    self.error = "El servicio de WhatsApp está listo, pero no se pudo recuperar la conexión. Pulsa Conectar WhatsApp para intentarlo de nuevo."
+                    logger.warning("WhatsApp private bridge ready, but saved connection could not be resumed.")
+        return True
+
+    async def wait_ready(self):
+        deadline = asyncio.get_running_loop().time() + self.startup_timeout
+        while asyncio.get_running_loop().time() < deadline:
+            if self.process.returncode is not None:
+                self.record_exit()
+                return False
+            if await self.probe_ready():
+                return True
+            await asyncio.sleep(0.25)
+        self.error = "WhatsApp sigue arrancando. Se comprobará automáticamente; no necesitas volver a escanear el QR mientras se recupera."
+        logger.warning("WhatsApp private bridge has not become ready within %s seconds; continuing checks in the background.", self.startup_timeout)
+        return False
+
     async def launch(self):
+        # Never spawn another bridge while the previous process is still alive.
+        if self.process and self.process.returncode is None:
+            return self.available or await self.wait_ready()
         root = Path(__file__).resolve().parents[3]
         script = root / "whatsapp" / "server.mjs"
         if not shutil.which("node") or not (script.parent / "node_modules").is_dir():
@@ -195,47 +267,36 @@ class WhatsAppQRService:
             return False
         environment = {**os.environ, "WHATSAPP_BRIDGE_TOKEN": self.token, "WHATSAPP_BRIDGE_PORT": str(self.port), "DATA_DIR": str(self.storage.data_dir)}
         # libsignal can print complete session objects independently of Pino.
-        # Keep all third-party stdout/stderr private and log only exit codes.
+        # Keep third-party stdout/stderr private; report only codes and fixed explanations.
         self.process = await asyncio.create_subprocess_exec("node", str(script), env=environment, cwd=script.parent, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
-        for _ in range(40):
-            if self.process.returncode is not None:
-                logger.warning("WhatsApp bridge did not start (exit code %s).", self.process.returncode)
-                self.error = "El servicio de WhatsApp no ha arrancado. Revisa los registros del servidor."
-                return False
-            try:
-                response = await self.client.get("/status")
-                if response.status_code == 200:
-                    self.available = True
-                    self.error = ""
-                    if self.config()["enabled"]:
-                        data = WhatsAppQRSettings(**{key: value for key, value in self.config().items() if key != "enabled"})
-                        await self.request("POST", "/connect", {"mode": data.mode, "owner_phone_number": data.owner_phone_number})
-                    return True
-            except (httpx.HTTPError, ValueError):
-                pass
-            await asyncio.sleep(0.1)
-        self.error = "El servicio de WhatsApp está tardando demasiado en arrancar. Revisa los registros."
-        return False
+        self.available = False
+        self.exit_reported = False
+        logger.info("Starting WhatsApp private bridge; allowing up to %s seconds for readiness.", self.startup_timeout)
+        return await self.wait_ready()
 
     async def run(self):
         while True:
             try:
                 if self.process and self.process.returncode is not None:
-                    self.available = False
-                    logger.warning("WhatsApp bridge stopped (exit code %s).", self.process.returncode)
-                    self.error = "WhatsApp se ha reiniciado. La conexión se está recuperando."
-                    if self.restart_count < 3:
+                    self.record_exit()
+                    if self.restart_count < 3 and self.process.returncode not in PERMANENT_STARTUP_ERRORS:
                         self.restart_count += 1
+                        await asyncio.sleep(self.restart_count)
                         await self.launch()
+                elif self.process and not self.available:
+                    # A slow but live process can become ready after the initial wait.
+                    await self.probe_ready()
                 if self.available and self.config()["enabled"]:
                     events = await self.request("GET", "/events")
                     for event in events:
                         await self.handle(event)
-            except (CommunicationError, KeyError, TypeError):
+            except (CommunicationError, KeyError, TypeError, OSError, ValueError):
                 pass
             await asyncio.sleep(1)
 
     async def start(self):
+        if self.task and not self.task.done():
+            return
         if os.getenv("WHATSAPP_QR_ENABLED", "1").lower() in {"0", "false"}:
             self.error = "WhatsApp por QR está desactivado en el entorno."
             return
