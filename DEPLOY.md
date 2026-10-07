@@ -10,6 +10,10 @@ Para recuperar claves, memoria, rutinas, equipos y WhatsApp después de perder e
 4. Espera al despliegue. Abre la URL HTTPS que Render asigna al servicio. La raíz redirige a tu espacio privado en `/app`; la dirección final se conoce al crear el servicio.
 5. Introduce el valor generado de `APP_AUTH_TOKEN`, consultándolo en privado en las variables de Render. Nunca compartas ese token. El despliegue mantiene `PUBLIC_DEMO_ENABLED=0` para uso personal.
 
+El arranque espera a que la API responda en `/api/v1/health` antes de abrir la web. Esto incluye la recuperación de las copias de GitHub; en los registros aparecerá `API ready. Starting the web.` cuando termine. Si la API falla o no está lista en tres minutos, el proceso termina con error para que Render pueda detectar el fallo; consulta los registros de la API. El apagado concede hasta 30 segundos a los procesos para guardar el estado y cerrar.
+
+Después de reiniciar el servidor puede ser necesario volver a iniciar sesión: los `401 Unauthorized` anteriores al acceso son esperados. Si `POST /api/v1/auth/login` devuelve `200 OK` y las peticiones privadas siguientes también devuelven `200`, el acceso funciona. Para comprobar la API usa `/api/v1/health`; `HEAD /` en su puerto interno puede devolver `404` porque la página principal la sirve Next.js.
+
 ## Qué ofrece el enlace público
 
 Para conversar por WhatsApp, abre **Llamadas y WhatsApp → WhatsApp → Con QR**, elige tu Dot y vincula el móvil desde **Dispositivos vinculados**. No necesita Twilio ni nuevas variables de entorno. La conexión por QR es no oficial; puede desconectarse o causar bloqueos de cuenta. Las llamadas telefónicas y WhatsApp con Twilio siguen siendo opcionales y requieren sus credenciales. Consulta [COMMUNICATIONS.md](COMMUNICATIONS.md).
