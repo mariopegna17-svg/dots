@@ -14,6 +14,7 @@ import {
   FiChevronDown,
   FiArrowUpRight,
   FiPhone,
+  FiUsers,
 } from "react-icons/fi";
 import DotBrand from "./DotBrand";
 import MascotAvatar, { botTone } from "./MascotAvatar";
@@ -109,6 +110,7 @@ export default function Sidebar({
         <nav className="main-nav" aria-label="Tu espacio">
           {[
             [FiGrid, "overview", "Inicio"],
+            [FiUsers, "team", "Equipo de Dots"],
             [FiBookOpen, "memory", "Memoria"],
             [FiClock, "routines", "Rutinas"],
             [FiPhone, "contact", "Llamadas y WhatsApp"],

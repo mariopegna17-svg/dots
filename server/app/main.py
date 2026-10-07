@@ -12,16 +12,23 @@ from app.services.computer_provider import computer_provider
 from app.services.storage_service import storage_service
 from app.routers import whatsapp_qr
 from app.services.whatsapp_qr_service import whatsapp_qr_service
+from app.services.youtube_service import youtube_service
+from app.routers import team
+from app.services.team_service import team_service
 
 @asynccontextmanager
 async def lifespan(app):
     await routine_service.start()
     await whatsapp_qr_service.start()
+    await youtube_service.start()
+    await team_service.start()
     try:
         yield
     finally:
         await routine_service.stop()
         await whatsapp_qr_service.stop()
+        await youtube_service.stop()
+        await team_service.stop()
 
 
 app = FastAPI(
@@ -74,7 +81,9 @@ async def require_authentication(request: Request, call_next):
             headers={"WWW-Authenticate": "Bearer", "Cache-Control": "no-store"},
         )
     request.state.user = user
-    return await call_next(request)
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 # Wrap authentication so allowed browser clients can read 401 responses.
 app.add_middleware(
@@ -99,6 +108,7 @@ app.include_router(agent_state.router)
 app.include_router(public_demo.router)
 app.include_router(communications.router)
 app.include_router(whatsapp_qr.router)
+app.include_router(team.router)
 
 
 @app.get("/api/v1/health")

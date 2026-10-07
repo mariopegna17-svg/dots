@@ -7,6 +7,9 @@ La referencia del producto es [Introducing Dots, de OpenAI](https://openai.com/e
 ## Incluido
 
 - Interfaz de chat con varios agentes, avatares y respuestas en streaming.
+- [Trabajo en equipo](TEAM-AND-APP.md): de dos a cuatro Dots aportan, revisan las ideas de sus compañeros y entregan una respuesta final del coordinador.
+- Temas Liquid Glass, acentos, espaciado y control de animaciones; [instalación en la pantalla de inicio del iPhone](TEAM-AND-APP.md) con icono de cristal transparente.
+- [Conectores guiados y YouTube](CONNECTORS.md): conexión OAuth, revisión de vídeos y subida al canal con aprobación. GitHub permite consultar y crear incidencias.
 - NVIDIA NIM mediante `/v1/chat/completions`, autenticación Bearer y llamadas a herramientas. Los modelos mantienen su ID exacto.
 - Modelo predeterminado `nvidia/nemotron-3-super-120b-a12b`, observado en el catálogo público de NVIDIA el 6 de octubre de 2026. Puedes cambiarlo en Ajustes → Proveedor de IA y en el selector de cada agente.
 - Memoria por agente en SQLite: añadir, consultar y borrar preferencias. Se incluye en futuras conversaciones y rutinas. El agente puede guardar un recuerdo con la herramienta `remember`.
@@ -68,7 +71,7 @@ Comprueba también `/api/v1/health`, el formulario de acceso, guardar y borrar u
 
 ## Servicios opcionales y límites
 
-La búsqueda utiliza `api.you.com/mcp` mediante el perfil gratuito sin clave. `YDC_API_KEY` permite usar el servicio autenticado; disponibilidad y límites dependen de You.com. Los conectores heredados usan Composio y requieren `COMPOSIO_API_KEY` y los permisos/OAuth de cada cuenta. Ninguna cuenta externa está conectada automáticamente. Su catálogo no significa que todas las acciones de cada aplicación estén implementadas.
+La búsqueda utiliza `api.you.com/mcp` mediante el perfil gratuito sin clave. `YDC_API_KEY` permite usar el servicio autenticado; disponibilidad y límites dependen de You.com. Los [conectores guiados](CONNECTORS.md) usan Composio: guarda su clave desde la interfaz y autoriza cada cuenta. `COMPOSIO_API_KEY` permite configurar esa clave por variables. Ninguna cuenta externa está conectada automáticamente. Su catálogo no significa que todas las acciones de cada aplicación estén implementadas.
 
 No incluye clientes nativos, Slack/Teams como canales de conversación, 4000 integraciones, acceso al ordenador personal ni la memoria de ChatGPT. El ordenador usa un contexto de navegador efímero por contenedor; no hereda tus sesiones personales. Docker aporta separación y límites de recursos, pero esta versión no es un servicio multiusuario ni una solución de aislamiento para páginas hostiles.
 
@@ -76,4 +79,8 @@ Para exponerlo fuera de loopback, configura un reverse proxy HTTPS, `AUTH_COOKIE
 
 ## Validación en este entorno
 
-103 pruebas automatizadas pasadas y compilación de producción completada. Se verificaron en el navegador el acceso, memoria, rutinas y el fallo explícito al faltar una clave. El ordenador Docker abrió GitHub por HTTPS, leyó texto y enlaces, capturó pantalla y ejecutó un comando. La búsqueda gratuita de You.com respondió correctamente. También se verificaron la inferencia autenticada de NVIDIA, una respuesta real del chat por streaming y una rutina completada con el modelo predeterminado. La credencial se conserva cifrada en los ajustes de la aplicación y los elementos temporales de prueba se eliminaron. El contenedor de producción compiló y la demo pública respondió con NVIDIA desde el navegador, sin errores JavaScript; los ajustes privados devolvieron 401 al visitante anónimo. El despliegue en un alojamiento público y la restauración en una tarea nueva aún no se han realizado.
+167 pruebas automatizadas pasadas y compilación de producción completada. Se comprobó una tarea real con NVIDIA: dos Dots aportaron análisis, revisaron las ideas del otro y entregaron una síntesis del coordinador. Las credenciales siguen cifradas y los datos temporales de prueba se eliminaron.
+
+Las comprobaciones de navegador cubrieron temas guardados y previsualizados, equipos, conectores, revisión de vídeos, navegación móvil y la instalación web. El contenedor final funcionó con un límite de 512 MB, sin reinicios ni errores JavaScript. Las API privadas rechazaron visitantes anónimos y el service worker almacenó solo el icono y la página sin conexión.
+
+La autorización y publicación de YouTube se comprobaron con respuestas controladas y el contrato oficial del proveedor; no se autorizó un canal real ni se publicó un vídeo. La instalación se comprobó con emulación de iPhone, sin una instalación física en el dispositivo. Esta versión necesita desplegarse en Render desde el último commit para actualizar la web pública.

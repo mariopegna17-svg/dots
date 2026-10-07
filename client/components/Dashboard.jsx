@@ -19,7 +19,9 @@ import AgentStatePanel from "./AgentStatePanel";
 import Overview from "./Overview";
 import CreateDotDialog from "./CreateDotDialog";
 import ContactPanel from "./ContactPanel";
+import TeamPanel from "./TeamPanel";
 import useLiquidGlass from "../lib/useLiquidGlass";
+import { applyAppearance } from "../lib/appearance";
 import {
   fetchBots,
   fetchModels,
@@ -38,6 +40,7 @@ const tabNames = {
   memory: "Memoria",
   routines: "Rutinas",
   contact: "Llamadas y WhatsApp",
+  team: "Equipo de Dots",
 };
 export default function Dashboard({ onLogout }) {
   const glassRef = useLiquidGlass();
@@ -77,6 +80,7 @@ export default function Dashboard({ onLogout }) {
       setModels(modelData);
       setDefaultModel(settingsData.default_model);
       setProviderConfigured(Boolean(settingsData.model_api_key_configured));
+      applyAppearance(settingsData, true);
       setActiveBotId((id) => id || botData[0]?.id || "");
     } catch (failure) {
       setError(failure.message || "No se pudo cargar tu espacio.");
@@ -225,11 +229,14 @@ export default function Dashboard({ onLogout }) {
             />
           )}
           {activeTab === "marketplace" && (
-            <Marketplace onOpenSettings={() => setIsSettingsOpen(true)} />
+            <Marketplace onOpenSettings={() => setIsSettingsOpen(true)} onOpenContact={() => selectTab("contact")} />
           )}
           {activeTab === "audit" && <AuditPanel />}
           {activeTab === "contact" && (
             <ContactPanel bots={bots} bot={activeBot} />
+          )}
+          {activeTab === "team" && (
+            <TeamPanel bots={bots} providerConfigured={providerConfigured} onOpenSettings={() => setIsSettingsOpen(true)} />
           )}
           {["memory", "routines"].includes(activeTab) && (
             <AgentStatePanel
@@ -240,7 +247,8 @@ export default function Dashboard({ onLogout }) {
           )}
         </div>
       </main>
-      <AppSettingsDrawer
+        <AppSettingsDrawer
+          onOpenConnectors={() => { closeSettings(); selectTab("marketplace"); }}
         bot={activeBot}
         onUpdateRules={async (id, rules) => {
           const updated = await updateBot(id, { system_prompt: rules });

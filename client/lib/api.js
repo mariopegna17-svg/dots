@@ -161,39 +161,55 @@ export async function uploadImage(file) {
 }
 
 export async function fetchConnectorCatalog() {
-  try {
-    const res = await apiFetch(`${API_BASE_URL}/connectors/catalog`);
-    if (!res.ok) return { cards: [], source: 'curated', configured: false };
-    return await res.json();
-  } catch (err) {
-    console.warn('Connector catalog offline:', err);
-    return { cards: [], source: 'curated', configured: false };
-  }
+  return connectorRequest('/catalog');
 }
 
 export async function fetchConnectionStatus(slugs = []) {
   if (!slugs.length) return { services: {} };
-  try {
-    const res = await apiFetch(`${API_BASE_URL}/connectors?services=${encodeURIComponent(slugs.join(','))}`);
-    if (!res.ok) return { services: {} };
-    return await res.json();
-  } catch (err) {
-    console.warn('Connection status offline:', err);
-    return { services: {} };
-  }
+  return connectorRequest(`?services=${encodeURIComponent(slugs.join(','))}`);
 }
 
 export async function authorizeConnector(slug) {
-  const res = await apiFetch(`${API_BASE_URL}/connectors/${slug}/authorize`, { method: 'POST' });
-  if (!res.ok) throw new Error(`Failed to authorize ${slug}`);
-  return res.json();
+  return connectorRequest(`/${encodeURIComponent(slug)}/authorize`, { method: 'POST' });
 }
 
 export async function disconnectConnector(slug) {
-  const res = await apiFetch(`${API_BASE_URL}/connectors/${slug}`, { method: 'DELETE' });
-  if (!res.ok) throw new Error(`Failed to disconnect ${slug}`);
-  return res.json();
+  return connectorRequest(`/${encodeURIComponent(slug)}`, { method: 'DELETE' });
 }
+
+async function connectorRequest(path, options = {}) {
+  const response = await apiFetch(`${API_BASE_URL}/connectors${path}`, options);
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : typeof data.error === 'string' ? data.error : 'No se pudo completar la acción. Revisa los datos e inténtalo de nuevo.');
+  return data;
+}
+
+export const configureConnectors = (apiKey) => connectorRequest('/setup', {
+  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ api_key: apiKey }),
+});
+export const fetchYouTubeChannel = () => connectorRequest('/youtube/channel');
+export const fetchYouTubeUploads = () => connectorRequest('/youtube/uploads');
+export function prepareYouTubeVideo(file, metadata) {
+  const data = new FormData();
+  data.append('file', file);
+  data.append('metadata', JSON.stringify(metadata));
+  return connectorRequest('/youtube/uploads', { method: 'POST', body: data });
+}
+export const publishYouTubeVideo = (id) => connectorRequest(`/youtube/uploads/${encodeURIComponent(id)}/publish`, {
+  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ confirmed: true }),
+});
+export const discardYouTubeVideo = (id) => connectorRequest(`/youtube/uploads/${encodeURIComponent(id)}`, { method: 'DELETE' });
+
+async function teamRequest(path, options = {}) {
+  const response = await apiFetch(`${API_BASE_URL}/team${path}`, options);
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'No se pudo completar la tarea del equipo.');
+  return data;
+}
+export const fetchTeamRuns = () => teamRequest('/runs');
+export const fetchTeamRun = (id) => teamRequest(`/runs/${encodeURIComponent(id)}`);
+export const createTeamRun = (data) => teamRequest('/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+export const cancelTeamRun = (id) => teamRequest(`/runs/${encodeURIComponent(id)}/cancel`, { method: 'POST' });
 
 export async function fetchAuditEvents(limit = 100) {
   try {

@@ -16,6 +16,8 @@ La demo pública está desactivada por defecto. Si decides compartirla más adel
 
 La sección privada conserva los agentes, memoria y rutinas, protegidos por el token. Esta versión sigue siendo de un único propietario; no ofrece cuentas independientes para visitantes.
 
+El **Equipo de Dots**, los **temas** y la instalación en iPhone funcionan con el mismo servicio. Consulta [TEAM-AND-APP.md](TEAM-AND-APP.md). Para subir vídeos, configura **Conectores → YouTube** y autoriza tu canal siguiendo [CONNECTORS.md](CONNECTORS.md). No necesitas nuevas variables obligatorias de Render; la clave de Composio se puede guardar desde la web.
+
 ## Límites de la opción gratuita
 
 Las instancias gratuitas pueden suspenderse y tardar en arrancar al recibir una visita. Mientras estén suspendidas las rutinas no se ejecutan y WhatsApp no responde. Abre la web para despertar el servicio antes de escribir al Dot. Los datos locales no tienen persistencia garantizada: al reiniciar o redesplegar pueden perderse memoria, rutinas, conversaciones, el contador de cuota y la sesión de WhatsApp. Si se pierde la sesión, vuelve a escanear el QR. No uses este plan para rutinas importantes ni como un límite de gasto infalible.

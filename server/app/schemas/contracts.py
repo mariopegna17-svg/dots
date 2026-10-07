@@ -106,7 +106,10 @@ class AppSettingsSchema(BaseModel):
     model_api_key_configured: bool = False
     composio_api_key_configured: bool = False
     default_model: str = "gpt-5-mini"
-    theme: str = "dark"
+    theme: Literal["dark", "light", "aurora", "midnight"] = "dark"
+    theme_accent: Literal["blue", "mint", "violet", "rose"] = "blue"
+    theme_density: Literal["comfortable", "compact"] = "comfortable"
+    theme_motion: Literal["full", "reduced"] = "full"
 
     @field_validator("model_api_base_url")
     @classmethod

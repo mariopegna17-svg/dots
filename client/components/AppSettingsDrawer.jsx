@@ -10,6 +10,8 @@ import {
   FiChevronDown,
 } from "react-icons/fi";
 import Modal from "./Modal";
+import AppearancePanel from "./AppearancePanel";
+import InstallAppPanel from "./InstallAppPanel";
 import { fetchSettings, saveSettings } from "../lib/api";
 
 const inputClass = "studio-input";
@@ -25,6 +27,7 @@ export default function AppSettingsDrawer({
   onProfileUpdate,
   bot,
   onUpdateRules,
+  onOpenConnectors,
 }) {
   const [rules, setRules] = useState("");
   const [rulesNotice, setRulesNotice] = useState("");
@@ -40,12 +43,9 @@ export default function AppSettingsDrawer({
   const [headersConfiguradas, setHeadersConfiguradas] = useState(false);
   const [headersMode, setHeadersMode] = useState("keep");
   const [headers, setHeaders] = useState([{ name: "", value: "" }]);
-  const [composioKey, setComposioKey] = useState("");
-  const [composioConfiguradas, setComposioConfiguradas] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState(null);
-  const [connectorNotice, setConnectorNotice] = useState(null);
 
   useEffect(() => {
     setRules(bot?.system_prompt || "");
@@ -57,9 +57,7 @@ export default function AppSettingsDrawer({
     let cancelled = false;
     setLoaded(false);
     setNotice(null);
-    setConnectorNotice(null);
     setApiKey("");
-    setComposioKey("");
     setShowKey(false);
     setUserName(localStorage.getItem("open_dots_user_name") || "");
     setUserEmail(localStorage.getItem("open_dots_user_email") || "");
@@ -80,7 +78,6 @@ export default function AppSettingsDrawer({
       setHeadersConfiguradas(Boolean(data.model_api_headers_configured));
       setHeadersMode("keep");
       setHeaders([{ name: "", value: "" }]);
-      setComposioConfiguradas(Boolean(data.composio_api_key_configured));
       setLoaded(true);
     });
     return () => {
@@ -170,24 +167,6 @@ export default function AppSettingsDrawer({
     }
   };
 
-  const saveConnector = async (event) => {
-    event.preventDefault();
-    setSaving(true);
-    setConnectorNotice(null);
-    try {
-      const saved = await saveSettings({
-        composio_api_key: composioKey.trim(),
-      });
-      setComposioKey("");
-      setComposioConfiguradas(Boolean(saved.composio_api_key_configured));
-      setConnectorNotice({ text: "Clave del conector guardada." });
-    } catch (error) {
-      setConnectorNotice({ error: true, text: error.message });
-    } finally {
-      setSaving(false);
-    }
-  };
-
   return (
     <Modal onClose={onClose} titleId="settings-title" sheet>
       <div className="settings-sheet">
@@ -205,6 +184,8 @@ export default function AppSettingsDrawer({
           </button>
         </div>
         <div className="settings-body">
+          <AppearancePanel />
+          <InstallAppPanel />
           {bot && (
             <form
               className={cardClass}
@@ -534,39 +515,13 @@ export default function AppSettingsDrawer({
             </form>
           </details>
 
-          <form onSubmit={saveConnector} className={cardClass}>
+          <section className={cardClass}>
             <h3 className="text-sm font-semibold">
               Conectores de aplicaciones
             </h3>
-            <label htmlFor="composio-key" className="block text-xs font-medium">
-              Composio API Key
-            </label>
-            <input
-              id="composio-key"
-              type="password"
-              autoComplete="new-password"
-              value={composioKey}
-              onChange={(e) => setComposioKey(e.target.value)}
-              placeholder={
-                composioConfiguradas
-                  ? "Guardada de forma segura; deja vacío para conservar"
-                  : "Clave opcional para conectores"
-              }
-              className={inputClass}
-              disabled={!loaded || saving}
-            />
-            <button disabled={!loaded || saving} className={buttonClass}>
-              Guardar clave del conector
-            </button>
-            {connectorNotice && (
-              <p
-                role={connectorNotice.error ? "alert" : "status"}
-                className={`text-xs ${connectorNotice.error ? "text-red-400" : "text-emerald-400"}`}
-              >
-                {connectorNotice.text}
-              </p>
-            )}
-          </form>
+            <p className="text-xs text-zinc-400">YouTube, GitHub y tus demás cuentas se configuran paso a paso en Conectores.</p>
+            <button type="button" className={buttonClass} onClick={onOpenConnectors}>Abrir conectores</button>
+          </section>
 
           <div className={cardClass}>
             <h3 className="text-sm font-semibold">Perfil</h3>

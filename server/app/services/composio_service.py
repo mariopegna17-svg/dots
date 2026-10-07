@@ -78,6 +78,10 @@ class ComposioService:
                 "Configure a Composio API key and connect GitHub before using connector actions."
             )
 
+        if name in {GITHUB_LIST_ISSUES_TOOL, GITHUB_CREATE_ISSUE_TOOL} and api_key is None:
+            from app.services.connector_service import connector_service
+            return await connector_service.execute("github", name, arguments)
+
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.post(
                 CONNECT_URL,

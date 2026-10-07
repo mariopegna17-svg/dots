@@ -1,0 +1,70 @@
+.connector-feedback { padding: 14px 0; font-size: 13px; line-height: 1.7; }
+.connector-setup, .youtube-connector-feature { border: 1px solid var(--line); border-radius: 22px; padding: 24px; margin-top: 24px; background: var(--surface); backdrop-filter: blur(24px) saturate(150%); }
+.connector-setup h2, .youtube-connector-feature h2 { font-size: 18px; font-weight: 600; }
+.connector-setup p, .youtube-connector-feature > p { color: var(--muted); font-size: 13px; line-height: 1.8; margin: 10px 0; }
+.connector-setup small, .youtube-feature-buttons small { color: var(--muted); font-size: 11px; line-height: 1.8; }
+.connector-setup-steps { list-style: decimal; padding-left: 20px; color: var(--foreground); font-size: 12px; line-height: 1.9; margin: 14px 0; }
+.connector-setup-steps a, .connector-notice a { text-decoration: underline; text-underline-offset: 4px; }
+.connector-setup-steps svg { display: inline; vertical-align: middle; }
+.connector-setup form > label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 8px; }
+.connector-setup form > div { display: flex; gap: 12px; margin-bottom: 10px; }
+.connector-setup input { flex: 1; width: 100%; min-width: 0; border: 1px solid var(--line); border-radius: 12px; padding: 12px 15px; background: var(--background); color: var(--foreground); font-size: 13px; }
+.connector-setup-ready { display: flex; align-items: center; justify-content: space-between; gap: 15px; font-size: 13px; }
+.connector-setup-ready > span { display: flex; align-items: center; gap: 10px; }
+.connector-setup-ready > span svg { color: #9ee9b9; }
+.connector-app-icon { width: 44px; height: 44px; flex-shrink: 0; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 13px; background: var(--surface-raised); font-size: 23px; }
+.connector-icon-youtube { color: #ff6e78; background: rgba(255, 57, 79, .08); }
+.connector-icon-googlecalendar, .connector-icon-googledrive { color: #91b5ff; }
+.connector-icon-gmail { color: #ffa5a5; }
+.youtube-connector-feature { background: radial-gradient(ellipse at 0 0, rgba(253, 71, 101, .10), transparent 65%), var(--surface); }
+.youtube-feature-heading { display: flex; align-items: center; gap: 16px; }
+.youtube-feature-heading > div { flex: 1; min-width: 0; }
+.youtube-feature-heading .eyebrow { font-size: 9px; }
+.youtube-feature-heading h2 { margin: 4px 0; }
+.youtube-feature-heading p { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.connector-state { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 30px; padding: 6px 10px; white-space: nowrap; }
+.youtube-feature-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin-top: 20px; }
+.connector-footer { margin: 26px 0; display: flex; flex-wrap: wrap; gap: 20px; align-items: center; color: var(--muted); font-size: 11px; line-height: 1.9; }
+.connector-footer p { width: 100%; }
+.connector-pagination { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 18px; }
+.connector-pagination span { font-size: 11px; color: var(--muted); }
+.youtube-uploads { display: grid; gap: 10px; margin-top: 22px; }
+.youtube-upload-status { display: flex; gap: 12px; align-items: flex-start; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px; }
+.youtube-upload-status > svg { flex-shrink: 0; margin-top: 3px; color: var(--muted); }
+.youtube-upload-status > div:first-of-type { flex: 1; min-width: 0; }
+.youtube-upload-status strong { display: block; font-size: 12px; overflow-wrap: anywhere; }
+.youtube-upload-status small { display: block; color: var(--muted); font-size: 10px; line-height: 1.8; margin-top: 4px; }
+.youtube-upload-status small svg { display: inline; }
+.youtube-upload-status .message-error { color: #ffb3b8; }
+.youtube-upload-status progress { width: 100%; height: 5px; margin-top: 12px; accent-color: #f98096; }
+.youtube-upload-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.youtube-publisher { width: min(640px, 100%); }
+.youtube-publisher .modal-heading { margin-bottom: 22px; }
+.youtube-form { display: grid; gap: 18px; }
+.youtube-form label { font-size: 12px; line-height: 1.8; display: flex; flex-direction: column; gap: 7px; }
+.youtube-form input:not([type=file]), .youtube-form textarea, .youtube-form select { width: 100%; border: 1px solid var(--line); border-radius: 12px; padding: 11px 13px; background: var(--background); color: var(--foreground); min-width: 0; font-size: 13px; }
+.youtube-form input[type=file] { font-size: 11px; max-width: 100%; }
+.youtube-form select { text-overflow: ellipsis; }
+.youtube-form .youtube-file { padding: 22px; border: 1px dashed var(--line); border-radius: 17px; background: var(--surface); text-align: center; align-items: center; overflow-wrap: anywhere; }
+.youtube-file > svg { font-size: 26px; color: #ffc0ce; margin-bottom: 4px; }
+.youtube-file > small { color: var(--muted); }
+.youtube-form-row { display: grid; grid-template-columns: 1fr 1.2fr; gap: 14px; }
+.youtube-review dl { margin: 18px 0; display: grid; gap: 15px; }
+.youtube-review dl > div { display: grid; grid-template-columns: 110px 1fr; gap: 15px; font-size: 13px; }
+.youtube-review dt { color: var(--muted); }
+.youtube-review dd { overflow-wrap: anywhere; }
+.youtube-description { white-space: pre-wrap; max-height: 160px; overflow: auto; }
+.youtube-review > p, .connector-disconnect > p { font-size: 12px; line-height: 1.9; }
+.youtube-review-buttons, .connector-disconnect footer { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
+.youtube-review-buttons .text-button { margin-right: auto; }
+@media (max-width: 600px) {
+  .connector-setup, .youtube-connector-feature { padding: 18px; }
+  .connector-setup form > div { flex-direction: column; }
+  .youtube-feature-heading { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 10px; }
+  .connector-state { grid-column: 2; justify-self: start; margin-left: 0; }
+  .connector-controls { flex-wrap: wrap; }
+  .youtube-form-row { grid-template-columns: 1fr; }
+  .youtube-review dl > div { grid-template-columns: 1fr; gap: 3px; }
+  .youtube-upload-status { flex-wrap: wrap; }
+  .youtube-upload-actions { margin-left: auto; }
+}

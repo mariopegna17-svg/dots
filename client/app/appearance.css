@@ -1,0 +1,99 @@
+:root { --accent-color: #a9c9ff; --accent-rgb: 169, 201, 255; }
+html[data-accent="mint"] { --accent-color: #9fe8ca; --accent-rgb: 159, 232, 202; }
+html[data-accent="violet"] { --accent-color: #ccb5ff; --accent-rgb: 204, 181, 255; }
+html[data-accent="rose"] { --accent-color: #f3b3cf; --accent-rgb: 243, 179, 207; }
+html[data-theme="aurora"] {
+  --background: #141326; --foreground: #f7f1ff; --surface: rgba(47, 39, 74, .65); --surface-raised: rgba(67, 54, 102, .76);
+  --muted: #c0b5d5; --line: rgba(224, 209, 255, .18); --sidebar-bg: rgba(22, 18, 42, .78); --popover-bg: #302844; --card-active: rgba(188, 150, 241, .18);
+}
+html[data-theme="midnight"] {
+  --background: #07090f; --foreground: #edf1fa; --surface: rgba(24, 29, 42, .76); --surface-raised: rgba(42, 49, 65, .8);
+  --muted: #acb7ca; --line: rgba(222, 233, 255, .15); --sidebar-bg: rgba(7, 10, 18, .84); --popover-bg: #1d2536; --card-active: rgba(117, 155, 219, .15);
+}
+html[data-theme="light"] {
+  --background: #f1f5fc; --foreground: #1a2943; --surface: rgba(255, 255, 255, .74); --surface-raised: rgba(242, 247, 255, .93);
+  --muted: #56677f; --line: rgba(54, 78, 116, .20); --sidebar-bg: rgba(239, 245, 255, .83); --popover-bg: #f8fbff; --card-active: rgba(128, 170, 241, .18);
+  --glass-shadow: inset 0 1px 0 #fff, 0 12px 34px rgba(36, 65, 112, .08);
+}
+html[data-theme] :is(.studio-app, .auth-page) { background-color: var(--background); color: var(--foreground); }
+html[data-theme="aurora"] :is(.studio-app, .auth-page)::before { background: radial-gradient(ellipse at 80% 12%, rgba(166, 92, 233, .26), transparent 50%), radial-gradient(ellipse at 12% 80%, rgba(78, 194, 159, .15), transparent 60%); }
+html[data-theme="midnight"] :is(.studio-app, .auth-page)::before { opacity: .45; }
+html[data-theme="light"] :is(.studio-app, .auth-page)::before { background: radial-gradient(ellipse at 85% 0, rgba(131, 176, 255, .24), transparent 50%), radial-gradient(ellipse at 10% 80%, rgba(188, 156, 224, .18), transparent 60%); }
+html[data-theme] :is(.home-dot-card, .home-prompt, .home-shortcuts button, .chat-composer, .contact-channel, .contact-compose, .contact-diagnostic, .contact-history article, .whatsapp-qr-panel, .state-form, .state-item, .state-empty, .settings-card, .action-review, .auth-card, .attachment-preview, .tool-event, .computer-toolbar, .connector-card) { background: linear-gradient(135deg, rgba(255,255,255,.09), rgba(255,255,255,.02)), var(--surface); border-color: var(--line); }
+html[data-theme] .home-dot-card { background: radial-gradient(ellipse at 40% 0, rgba(var(--glass-tone), .13), transparent 65%), var(--surface); }
+html[data-theme] .modal-surface { background: linear-gradient(130deg, rgba(255,255,255,.09), transparent), var(--surface-raised); color: var(--foreground); }
+html[data-theme] .workspace-topbar { background-color: var(--surface); border-color: var(--line); }
+html[data-theme] :is(.studio-input, .connector-search) { color: var(--foreground); background: var(--background); border-color: var(--line); }
+html[data-theme] :is(.studio-input, .team-coordinator select) option { color: var(--foreground); background: var(--background); }
+html[data-theme] :is(.home-dot-card strong, .chat-empty h2, .state-heading h1, .home-quick-heading h2, .workspace-switch strong, .roster-item strong, .profile-button strong, .nav-item.active) { color: var(--foreground); }
+html[data-theme] :is(.muted, .home-dot-card p, .home-dot-card > span:last-child, .home-welcome > p, .roster-item small, .profile-button small, .breadcrumb-root, .private-badge, .chat-empty > p, .composer-caption, .message-author time, .contact-heading p, .contact-channel p, .whatsapp-qr-heading p, .whatsapp-qr-footnote, .connector-card p, .state-heading p) { color: var(--muted); }
+html[data-theme] :is(.compact-button, .icon-button, .connector-button, .connector-connected, .text-button) { color: var(--foreground); }
+html[data-theme] :is(.primary-button, .home-send, .send-button) { background: linear-gradient(145deg, #fff, rgb(var(--accent-rgb))); color: #18283c; }
+html[data-theme] :is(.nav-item.active, .roster-item.active, .contact-channel.selected) { border-color: rgba(var(--accent-rgb), .42); background-color: var(--card-active); }
+html[data-theme] :is(button, a, input, textarea, select, summary):focus-visible { outline-color: var(--accent-color); }
+html[data-theme="light"] :is(.home-welcome h1) { background: none; color: var(--foreground); -webkit-text-fill-color: var(--foreground); }
+html[data-theme="light"] :is(.field-label, .message-author strong, .message-text, .chat-composer textarea, .sidebar-search input, .connector-search input, .home-prompt input, .home-prompt textarea, .profile-button, .nav-item, .message-bubble-user, .state-item, .home-section-heading h2, .chat-header-title, .chat-suggestions button, .home-suggestions button) { color: var(--foreground); }
+html[data-theme="light"] :is(.message-text pre, .tool-event, .attachment-preview) { background-color: var(--surface-raised); color: var(--foreground); }
+html[data-theme="light"] .message-error { color: #a22d49; }
+html[data-theme="light"] .settings-sheet :is([class*="text-zinc-"], [class*="text-violet-"]) { color: var(--muted); }
+html[data-theme="light"] .settings-sheet :is(.text-white, [class*="text-zinc-200"]) { color: var(--foreground); }
+html[data-theme="light"] .settings-sheet :is([class*="bg-[#"], [class*="bg-zinc-"]) { background-color: var(--background); color: var(--foreground); }
+html[data-theme="light"] :is(.icon-button, .nav-item, .roster-item):hover { color: var(--foreground); background-color: var(--card-active); }
+html[data-theme="light"] .dot-brand { color: var(--foreground); }
+html[data-theme="light"] .dot-brand svg { fill: currentColor; }
+html[data-theme="light"] :is(.workspace-letter, .profile-avatar) { color: var(--foreground); background: var(--card-active); }
+html[data-theme="light"] :is(.home-shortcuts small, .home-shortcuts button > svg, .roster-add, .provider-indicator, .roster-heading, .edition-tag, .brand-period, .home-new-dot > div) { color: var(--muted); }
+html[data-theme="light"] :is(.home-prompt input, .sidebar-search input, .studio-input, .chat-composer textarea, .connector-search input)::placeholder { color: var(--muted); }
+html[data-theme="light"] .home-dot-card:hover { box-shadow: var(--glass-shadow); }
+.appearance-panel h3, .install-app-panel h3 { font-size: 15px; font-weight: 600; }
+.appearance-panel > p, .install-app-heading p { color: var(--muted); font-size: 12px; line-height: 1.8; margin-top: 8px; }
+.appearance-panel fieldset { border: 0; min-width: 0; }
+.appearance-panel fieldset:disabled { opacity: .65; }
+.theme-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 20px; }
+.theme-choice { text-align: left; border: 1px solid var(--line); border-radius: 14px; padding: 10px; }
+.theme-choice[aria-pressed="true"] { outline: 2px solid var(--accent-color); outline-offset: 2px; }
+.theme-preview { display: flex; align-items: flex-start; justify-content: space-between; padding: 13px; height: 70px; border-radius: 10px; color: #e8f1ff; background: radial-gradient(ellipse at 0 0, #4c6b9e, transparent), #121b2b; }
+.theme-preview-light .theme-preview { background: radial-gradient(ellipse at 0 0, #b8d1fa, transparent), #eef4ff; color: #29415c; }
+.theme-preview-aurora .theme-preview { background: radial-gradient(ellipse at 0 0, #755aab, transparent), radial-gradient(ellipse at 100% 100%, #3a8073, transparent), #211935; }
+.theme-preview-midnight .theme-preview { background: radial-gradient(ellipse at 0 0, #23324c, transparent), #07090f; }
+.theme-choice strong { display: block; font-size: 12px; margin: 10px 0 3px; }
+.theme-choice small { color: var(--muted); font-size: 10px; }
+.accent-choices { display: flex; gap: 16px; margin: 22px 0; }
+.accent-choice { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; color: #17273f; background: #a9c9ff; }
+.accent-choice[data-color="mint"] { background: #9fe8ca; }
+.accent-choice[data-color="violet"] { background: #ccb5ff; }
+.accent-choice[data-color="rose"] { background: #f3b3cf; }
+.accent-choice[aria-pressed="true"] { outline: 2px solid var(--foreground); outline-offset: 4px; }
+.appearance-option { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 12px; }
+.appearance-option select { background: var(--background); color: var(--foreground); border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
+.appearance-toggle { display: flex; align-items: center; gap: 10px; margin: 18px 0 8px; font-size: 12px; }
+.appearance-toggle input { accent-color: var(--accent-color); }
+.appearance-panel small { color: var(--muted); font-size: 10px; line-height: 1.8; }
+.appearance-buttons { display: flex; justify-content: space-between; gap: 12px; margin-top: 20px; }
+.install-app-heading { display: flex; align-items: center; gap: 16px; }
+.install-app-heading img { flex-shrink: 0; }
+.install-app-panel ol { list-style: decimal; padding-left: 20px; font-size: 12px; line-height: 2; color: var(--muted); }
+.install-app-panel li svg { display: inline; vertical-align: middle; }
+.install-app-panel small { font-size: 10px; color: var(--muted); line-height: 1.8; }
+.install-app-panel .muted, .install-app-status { font-size: 12px; line-height: 1.8; }
+html[data-density="compact"] .home-inner { padding-top: 24px; }
+html[data-density="compact"] .home-welcome { margin-bottom: 24px; }
+html[data-density="compact"] .home-dot-card { padding: 16px; }
+html[data-density="compact"] .home-dot-card .mascot-xl { width: 88px; height: 88px; }
+html[data-density="compact"] .roster-item { padding-top: 8px; padding-bottom: 8px; }
+html[data-density="compact"] :is(.team-form, .team-run, .connector-setup, .youtube-connector-feature) { padding: 18px; margin-top: 18px; }
+html[data-motion="reduced"] *, html[data-motion="reduced"] *::before, html[data-motion="reduced"] *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+html[data-motion="reduced"] :is(.home-dot-card, .primary-button, .compact-button, .icon-button, .home-send, .send-button, .contact-channel, .home-shortcuts button):is(:hover, :active) { transform: none !important; }
+html[data-motion="reduced"] .home-dot-card::after { display: none; }
+@media (max-width: 767px) {
+  html[data-theme] .studio-sidebar { background-color: var(--popover-bg); }
+  input, textarea, select { font-size: 16px !important; }
+  .studio-app { height: 100dvh; }
+}
+@media (display-mode: standalone) {
+  .workspace-topbar { padding-top: env(safe-area-inset-top); min-height: calc(60px + env(safe-area-inset-top)); padding-right: max(18px, env(safe-area-inset-right)); }
+  .studio-sidebar { padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
+  .chat-composer-section { padding-bottom: max(16px, env(safe-area-inset-bottom)); }
+  .state-panel, .home-inner { padding-bottom: max(28px, env(safe-area-inset-bottom)); }
+  .modal-backdrop { padding-top: max(18px, env(safe-area-inset-top)); padding-bottom: max(18px, env(safe-area-inset-bottom)); }
+}

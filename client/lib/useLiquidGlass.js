@@ -24,7 +24,7 @@ export default function useLiquidGlass() {
       card = null;
     }
     function move(event) {
-      if (reduced.matches || !mouse.matches || event.pointerType === "touch") return;
+      if (reduced.matches || document.documentElement.dataset.motion === "reduced" || !mouse.matches || event.pointerType === "touch") return;
       const next = event.target.closest?.("[data-liquid-tilt]");
       if (!next || !element.contains(next)) { reset(); return; }
       if (card !== next) { reset(); card = next; }
@@ -47,12 +47,14 @@ export default function useLiquidGlass() {
     element.addEventListener("pointerleave", reset);
     reduced.addEventListener("change", reset);
     mouse.addEventListener("change", reset);
+    window.addEventListener("dots:appearance", reset);
     return () => {
       reset();
       element.removeEventListener("pointermove", move);
       element.removeEventListener("pointerleave", reset);
       reduced.removeEventListener("change", reset);
       mouse.removeEventListener("change", reset);
+      window.removeEventListener("dots:appearance", reset);
     };
   }, []);
   return root;
