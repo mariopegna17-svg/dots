@@ -6,6 +6,12 @@
 !server/**
 !scripts/
 !scripts/production.py
+!whatsapp/
+!whatsapp/**
+whatsapp/node_modules/
+whatsapp/test/
+**/session.enc*
+**/session.key
 client/node_modules/
 client/.next/
 server/.venv/

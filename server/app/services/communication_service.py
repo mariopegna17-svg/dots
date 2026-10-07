@@ -190,7 +190,7 @@ class CommunicationService:
     def recent(self):
         with self.storage.database.connect() as db:
             rows = db.execute("SELECT id, channel, status, created_at, payload FROM communication_events WHERE owner_id = ? AND channel IN ('voice_out','whatsapp_out','whatsapp_in') ORDER BY created_at DESC LIMIT 20", (self.storage.owner_id,)).fetchall()
-        return [{"id": row["id"], "channel": row["channel"], "status": row["status"], "created_at": row["created_at"], **{key: json.loads(row["payload"]).get(key, "") for key in ("message", "reply", "error", "error_code")}} for row in rows]
+        return [{"id": row["id"], "channel": row["channel"], "status": row["status"], "created_at": row["created_at"], **{key: json.loads(row["payload"]).get(key, "") for key in ("message", "reply", "error", "error_code", "provider")}} for row in rows]
 
     async def _request(self, method, resource, *, data=None, params=None):
         config = self.config()

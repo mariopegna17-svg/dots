@@ -11,6 +11,7 @@ import {
 } from "react-icons/fi";
 import { agentState } from "../lib/api";
 import Modal from "./Modal";
+import WhatsAppQRPanel from "./WhatsAppQRPanel";
 
 const labels = {
   pending: "En preparación",
@@ -57,7 +58,10 @@ const fields = [
 export default function ContactPanel({ bots, bot }) {
   const [config, setConfig] = useState(null);
   const [events, setEvents] = useState([]);
-  const [channel, setChannel] = useState("voice");
+  const [channel, setChannel] = useState("whatsapp");
+  const [whatsappProvider, setWhatsappProvider] = useState("qr");
+  const [qrStatus, setQRStatus] = useState(null);
+  const showTwilio = channel === "voice" || whatsappProvider === "twilio";
   const [message, setMessage] = useState("");
   const [selectedBot, setSelectedBot] = useState(bot?.id || "");
   const [setupOpen, setSetupOpen] = useState(false);
@@ -214,7 +218,7 @@ export default function ContactPanel({ bots, bot }) {
             <h1>Llamadas y WhatsApp</h1>
             <p>Habla con tu Dot también desde tu teléfono.</p>
           </div>
-          <div className="contact-actions">
+          {showTwilio && <div className="contact-actions">
             <button
               className="compact-button"
               disabled={!config || busy || checking}
@@ -230,7 +234,7 @@ export default function ContactPanel({ bots, bot }) {
             >
               <FiSettings /> Configurar
             </button>
-          </div>
+          </div>}
         </header>
         {notice && (
           <p
@@ -240,7 +244,7 @@ export default function ContactPanel({ bots, bot }) {
             {notice.text}
           </p>
         )}
-        {diagnostic && (
+        {showTwilio && diagnostic && (
           <section className="contact-diagnostic" aria-live="polite">
             <h2>
               {diagnostic.ok
@@ -313,18 +317,24 @@ export default function ContactPanel({ bots, bot }) {
               <p>{text}</p>
               <span
                 className={
-                  config?.[id === "voice" ? "voice_ready" : "whatsapp_ready"]
+                  (id === "whatsapp" && whatsappProvider === "qr" ? qrStatus?.state === "connected" : config?.[id === "voice" ? "voice_ready" : "whatsapp_ready"])
                     ? "channel-ready"
                     : "muted"
                 }
               >
-                {config?.[id === "voice" ? "voice_ready" : "whatsapp_ready"]
-                  ? "Datos configurados"
+                {(id === "whatsapp" && whatsappProvider === "qr" ? qrStatus?.state === "connected" : config?.[id === "voice" ? "voice_ready" : "whatsapp_ready"])
+                  ? (id === "whatsapp" && whatsappProvider === "qr" ? "Conectado" : "Datos configurados")
                   : "Por conectar"}
               </span>
             </button>
           ))}
         </div>
+        {channel === "whatsapp" && <div className="whatsapp-provider-options">
+          <button className={`compact-button ${whatsappProvider === "qr" ? "selected" : ""}`} aria-pressed={whatsappProvider === "qr"} onClick={() => setWhatsappProvider("qr")}>Con QR · sencillo</button>
+          <button className={`text-button ${whatsappProvider === "twilio" ? "selected" : ""}`} aria-pressed={whatsappProvider === "twilio"} onClick={() => setWhatsappProvider("twilio")}>Usar Twilio</button>
+        </div>}
+        {channel === "whatsapp" && whatsappProvider === "qr" && <WhatsAppQRPanel bots={bots} onStatus={setQRStatus} />}
+        {showTwilio && <>
         <section className="contact-compose">
           <h2>
             {channel === "voice" ? "Pedir una llamada" : "Enviar un WhatsApp"}
@@ -461,8 +471,9 @@ export default function ContactPanel({ bots, bot }) {
             <p>Render proporciona la URL pública automáticamente.</p>
           </details>
         </section>
+        </>}
         {events.length > 0 && (
-          <section className="contact-history">
+        <section className="contact-history">
             <h2>Últimas comunicaciones</h2>
             {events.map((event) => (
               <article key={event.id}>
@@ -485,7 +496,7 @@ export default function ContactPanel({ bots, bot }) {
                   {event.reply && <p>{event.reply}</p>}
                   {event.error && <p className="inline-error">{event.error}</p>}
                   <small>
-                    {labels[event.status] || event.status} ·{" "}
+                    {event.provider === "qr" && event.status === "sent" ? "Respuesta enviada por WhatsApp" : labels[event.status] || event.status} ·{" "}
                     {new Date(event.created_at).toLocaleString("es-ES")}
                   </small>
                 </div>

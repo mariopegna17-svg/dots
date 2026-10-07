@@ -12,5 +12,7 @@ uv pip install --python server/.venv/bin/python --require-hashes -r server/requi
 cd "$dots_root/client"
 npm ci --no-audit --no-fund
 npm run build
+cd "$dots_root/whatsapp"
+npm ci --no-audit --no-fund
 cd "$dots_root"
 python3 scripts/build_computer.py

@@ -10,14 +10,18 @@ from app.routers import auth, bots, models, chat, approvals, upload, settings as
 from app.services.auth_service import auth_service
 from app.services.computer_provider import computer_provider
 from app.services.storage_service import storage_service
+from app.routers import whatsapp_qr
+from app.services.whatsapp_qr_service import whatsapp_qr_service
 
 @asynccontextmanager
 async def lifespan(app):
     await routine_service.start()
+    await whatsapp_qr_service.start()
     try:
         yield
     finally:
         await routine_service.stop()
+        await whatsapp_qr_service.stop()
 
 
 app = FastAPI(
@@ -94,6 +98,7 @@ app.include_router(computers.router)
 app.include_router(agent_state.router)
 app.include_router(public_demo.router)
 app.include_router(communications.router)
+app.include_router(whatsapp_qr.router)
 
 
 @app.get("/api/v1/health")

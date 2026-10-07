@@ -1,6 +1,27 @@
 # Llamadas y WhatsApp
 
-La integración usa tu modelo de NVIDIA para responder y Twilio para telefonía, reconocimiento de voz, síntesis de voz y WhatsApp. Solo permite el número del propietario que configures. No viene activada: necesita tus credenciales de Twilio y una URL pública HTTPS.
+## WhatsApp por QR: la conexión sencilla
+
+No necesitas Twilio, tokens de WhatsApp, webhooks ni una cuenta de empresa. Baileys vincula Dots como un dispositivo de WhatsApp y tu modelo de NVIDIA genera las respuestas.
+
+1. En Render, despliega la última versión de `main`: **Manual Deploy → Deploy latest commit**. Conserva `NVIDIA_API_KEY` y `APP_AUTH_TOKEN`. No necesitas nuevas variables para WhatsApp por QR.
+2. Abre la web y entra en **Llamadas y WhatsApp → WhatsApp → Con QR**.
+3. Elige el **Dot que responde**. Deja **Mi WhatsApp · Mensaje a ti mismo** para usar tu número actual.
+4. Pulsa **Conectar WhatsApp**. En el móvil abre WhatsApp → **Ajustes** o menú **⋮** → **Dispositivos vinculados → Vincular un dispositivo** y escanea el QR que aparece en la web. El QR es privado; no lo compartas.
+5. Cuando aparezca **WhatsApp conectado**, abre tu propio chat **Mensaje a ti mismo** en WhatsApp y escribe «Hola». El Dot responderá allí. Solo procesa mensajes de texto; no procesa notas de voz, archivos ni grupos.
+6. Si prefieres un contacto aparte, elige **Otro número para el Dot**, introduce tu número habitual con prefijo internacional y escanea con el WhatsApp del otro número. El Dot responderá únicamente a tu número habitual. Abre la conversación mediante el botón que aparece al conectar.
+
+Puedes cambiar el Dot con **Guardar cambios**. **Desconectar** cierra y borra la sesión local del bot; también puedes revocar el dispositivo desde WhatsApp. El conector no cobra por mensaje, pero el servicio de IA mantiene los límites y condiciones de tu API de NVIDIA. Baileys es una conexión no oficial y WhatsApp puede desconectar o bloquear una cuenta: conviene usar un número aparte si quieres separar el bot de tu cuenta habitual.
+
+**Render Free:** el servicio puede dormir sin visitas y dejar de contestar. Abre la web para despertarlo y espera a que muestre conectado. Un despliegue o reinicio puede borrar su almacenamiento temporal: vuelve a escanear el QR. Las variables de entorno no conservan las claves de una sesión de WhatsApp; hace falta almacenamiento persistente para eso. No se garantiza disponibilidad continua en el plan gratuito.
+
+El servidor de WhatsApp arranca automáticamente con la API y escucha solo en `127.0.0.1:8787`, protegido por una clave interna generada en cada arranque. No lo publiques ni añadas este puerto a un proxy. El QR y los controles requieren la sesión del propietario en la web. Las credenciales de WhatsApp, las claves Signal y la cola se guardan cifradas en `DATA_DIR/whatsapp`; conserva tanto `session.enc` como `session.key` para recuperar la sesión. No se descarga el historial de otros chats. Se ignoran mensajes repetidos y los del propio bot para evitar bucles. Las respuestas usan memoria y el modelo del Dot, sin ejecutar herramientas. Se comparte el límite de cuarenta turnos entrantes diarios con los otros canales; la actividad y los errores se ven en **Últimas comunicaciones**.
+
+En desarrollo, `bash scripts/install.sh` instala el conector con su lockfile. Para instalarlo por separado: `cd whatsapp && npm ci`. `bash scripts/dev.sh` inicia también el servicio privado a través de la API. `WHATSAPP_QR_ENABLED=0` lo desactiva y `WHATSAPP_BRIDGE_PORT` permite cambiar su puerto local.
+
+## Llamadas y WhatsApp con Twilio (opcional)
+
+La integración oficial usa tu modelo de NVIDIA para responder y Twilio para telefonía, reconocimiento de voz, síntesis de voz y WhatsApp. Solo permite el número del propietario que configures. Necesita tus credenciales de Twilio y una URL pública HTTPS. Selecciona **Llamadas** o **WhatsApp → Usar Twilio** para ver estos ajustes.
 
 ## Configurar desde la web
 

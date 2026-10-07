@@ -18,7 +18,7 @@ La referencia del producto es [Introducing Dots, de OpenAI](https://openai.com/e
 
 ## Arranque
 
-La sección **Llamadas y WhatsApp** permite conectar Twilio para que tus Dots te llamen y respondan a tus mensajes de WhatsApp. Consulta [COMMUNICATIONS.md](COMMUNICATIONS.md) para la configuración, el crédito de prueba y los límites.
+La sección **Llamadas y WhatsApp → WhatsApp → Con QR** permite vincular tu móvil sin Twilio: elige un Dot, escanea el QR desde Dispositivos vinculados y escríbele en «Mensaje a ti mismo». También puedes conectar un número aparte para el Dot. Las llamadas y la conexión oficial con Twilio siguen disponibles. Consulta [COMMUNICATIONS.md](COMMUNICATIONS.md) para la configuración y los límites.
 
 Para alojar tu espacio privado desde GitHub, consulta [DEPLOY.md](DEPLOY.md). Incluye un despliegue en el plan gratuito de Render, con acceso de propietario y una demo pública opcional desactivada por defecto. La publicación requiere crear la cuenta de alojamiento.
 
@@ -33,7 +33,7 @@ bash scripts/dev.sh
 
 La instalación usa los lockfiles de npm y Python, comprueba hashes de paquetes Python y construye el ordenador desde una imagen de Node fijada por digest y paquetes oficiales de Debian. El helper de Docker reutiliza el proxy y las autoridades certificadoras del entorno; mantiene la comprobación TLS, las firmas de Debian y los checksums de las imágenes.
 
-`dev.sh` ejecuta una API en el puerto 8000 y Next.js en el 3000, enlazados a loopback. La página de inicio redirige a `/app`. La interfaz usa `/api/v1` en el mismo origen y Next.js lo dirige al backend. Usa `API_INTERNAL_URL` si el backend está en otra ubicación. Al cerrar el script se detienen únicamente sus procesos.
+`dev.sh` ejecuta una API en el puerto 8000 y Next.js en el 3000, enlazados a loopback. La API inicia el conector privado de WhatsApp en el puerto 8787; espera a que termine el arranque. La página de inicio redirige a `/app`. La interfaz usa `/api/v1` en el mismo origen y Next.js lo dirige al backend. Usa `API_INTERNAL_URL` si el backend está en otra ubicación. Al cerrar el script se detienen únicamente sus procesos, incluido el conector.
 
 Para identificarte, consulta **localmente y en privado** `server/.data/.auth-token` e introdúcelo en el formulario. No es tu clave de NVIDIA. También puedes establecer `APP_AUTH_TOKEN` en el servidor antes de arrancar. No publiques el token ni lo incluyas en variables `NEXT_PUBLIC_*`.
 

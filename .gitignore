@@ -29,6 +29,9 @@ server/app/services/__pycache__/
 *.sqlite3-shm
 .encryption.key
 .auth-token
+session.enc
+session.enc.tmp
+session.key
 
 # OS & Editor files
 .DS_Store

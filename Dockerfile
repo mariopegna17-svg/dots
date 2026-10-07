@@ -9,6 +9,14 @@ RUN --mount=type=secret,id=proxy_ca \
 COPY client/ ./
 RUN npm run build
 
+FROM node:22-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392 AS whatsapp
+WORKDIR /build/whatsapp
+COPY whatsapp/package.json whatsapp/package-lock.json ./
+RUN --mount=type=secret,id=proxy_ca \
+    if [ -f /run/secrets/proxy_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/proxy_ca; fi; \
+    npm ci --omit=dev --no-audit --no-fund
+COPY whatsapp/*.mjs ./
+
 FROM python:3.12-slim-bookworm@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258 AS api
 WORKDIR /build/server
 COPY server/requirements.lock ./
@@ -27,6 +35,7 @@ RUN groupadd --gid 1000 dots && useradd --uid 1000 --gid dots --create-home dots
 WORKDIR /app
 COPY --from=web /usr/local/bin/node /usr/local/bin/node
 COPY --from=api /opt/venv /opt/venv
+COPY --from=whatsapp --chown=dots:dots /build/whatsapp/ ./whatsapp/
 COPY --from=web --chown=dots:dots /build/client/.next/standalone/ ./client/
 COPY --from=web --chown=dots:dots /build/client/.next/static/ ./client/.next/static/
 COPY --from=web --chown=dots:dots /build/client/public/ ./client/public/

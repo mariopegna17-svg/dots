@@ -10,7 +10,7 @@
 
 ## Qué ofrece el enlace público
 
-Para conectar tu teléfono y WhatsApp, consulta [COMMUNICATIONS.md](COMMUNICATIONS.md). Es una integración opcional de Twilio y requiere sus propias credenciales; el alojamiento gratuito no incluye una línea telefónica.
+Para conversar por WhatsApp, abre **Llamadas y WhatsApp → WhatsApp → Con QR**, elige tu Dot y vincula el móvil desde **Dispositivos vinculados**. No necesita Twilio ni nuevas variables de entorno. La conexión por QR es no oficial; puede desconectarse o causar bloqueos de cuenta. Las llamadas telefónicas y WhatsApp con Twilio siguen siendo opcionales y requieren sus credenciales. Consulta [COMMUNICATIONS.md](COMMUNICATIONS.md).
 
 La demo pública está desactivada por defecto. Si decides compartirla más adelante, cambia `PUBLIC_DEMO_ENABLED` a `1` en el alojamiento. La raíz abrirá `/demo`. Ese chat utiliza NVIDIA, sin herramientas ni acceso a conversaciones, recuerdos, ajustes, archivos o rutinas del propietario. El historial público permanece en la pestaña del visitante y se envía al proveedor para responder; no se guarda en las conversaciones privadas. Hay 20 consultas diarias en total, compartidas entre visitantes, y un máximo de dos respuestas simultáneas. El presupuesto se cuenta en SQLite antes de llamar al proveedor; una petición fallida también consume una consulta. El proveedor puede facturar o descontar cuota por esas consultas aunque el alojamiento sea gratuito.
 
@@ -18,7 +18,7 @@ La sección privada conserva los agentes, memoria y rutinas, protegidos por el t
 
 ## Límites de la opción gratuita
 
-Las instancias gratuitas pueden suspenderse y tardar en arrancar al recibir una visita. Mientras estén suspendidas las rutinas no se ejecutan. Los datos locales no tienen persistencia garantizada: al reiniciar o redesplegar pueden perderse memoria, rutinas, conversaciones y el contador de cuota. No uses este plan para rutinas importantes ni como un límite de gasto infalible.
+Las instancias gratuitas pueden suspenderse y tardar en arrancar al recibir una visita. Mientras estén suspendidas las rutinas no se ejecutan y WhatsApp no responde. Abre la web para despertar el servicio antes de escribir al Dot. Los datos locales no tienen persistencia garantizada: al reiniciar o redesplegar pueden perderse memoria, rutinas, conversaciones, el contador de cuota y la sesión de WhatsApp. Si se pierde la sesión, vuelve a escanear el QR. No uses este plan para rutinas importantes ni como un límite de gasto infalible.
 
 El ordenador Docker de los agentes necesita un servidor compatible. Este despliegue utiliza el adaptador remoto y no configura un servicio de ordenador: si se intenta iniciarlo mostrará un error explícito. El chat público no ofrece esa herramienta. Para toda la funcionalidad usa un VPS con Docker o configura un servicio compatible con `COMPUTER_REMOTE_BASE_URL` y su credencial.
 
