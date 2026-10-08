@@ -311,7 +311,7 @@ class CommunicationService:
         success = False
         async def generate():
             nonlocal response, success
-            async for event in provider_service.stream_chat_completion(model=bot.get("model") or self.storage.get_settings()["default_model"], messages=history + [{"role": "user", "content": text}], system_prompt=system):
+            async for event in provider_service.stream_chat_completion(model=bot.get("model") or self.storage.get_settings()["default_model"], messages=history + [{"role": "user", "content": text}], system_prompt=system, response_profile="communication"):
                 if event["type"] == "content.delta":
                     response += event["delta"]
                 elif event["type"] == "turn.completed":

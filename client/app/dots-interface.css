@@ -6,6 +6,28 @@
   padding: 18px;
   margin: 18px 0;
 }
+.chat-action-reviews {
+  display: grid;
+  gap: 12px;
+  max-height: min(42dvh, 340px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin-bottom: 12px;
+}
+.chat-action-reviews .action-review {
+  margin: 0;
+  padding: 14px;
+}
+.chat-action-reviews .action-review > p {
+  max-height: 14dvh;
+  overflow-y: auto;
+}
+.chat-action-reviews .action-review header {
+  margin-bottom: 8px;
+}
+.chat-action-reviews .action-review footer {
+  margin-top: 12px;
+}
 .action-review header {
   display: flex;
   align-items: center;

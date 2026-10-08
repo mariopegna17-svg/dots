@@ -134,18 +134,25 @@ export default function ChatWindow({
   const streamingMessage = activeMessages.find(
     (message) => message.id === streamingMessageId,
   );
-  const mascotActivity = isStreaming
+  const mascotActivity = pendingApprovals.length
+    ? "idle"
+    : isStreaming
     ? streamingMessage?.text
       ? "responding"
       : "thinking"
     : isListening
       ? "listening"
       : "idle";
-  const activityLabel = {
-    thinking: "Pensando…",
-    responding: "Escribiendo…",
-    listening: "Te escucho…",
-  }[mascotActivity];
+  const whatsappSending = isStreaming && toolEvents.at(-1)?.type === "tool.started" && ["whatsapp_owner", "communication.whatsapp_qr", "communication.whatsapp"].includes(toolEvents.at(-1)?.tool);
+  const activityLabel = pendingApprovals.length
+    ? "Esperando tu autorización"
+    : whatsappSending
+    ? "Enviando a WhatsApp…"
+    : {
+        thinking: "Pensando…",
+        responding: "Escribiendo…",
+        listening: "Te escucho…",
+      }[mascotActivity];
 
   useEffect(() => {
     if (bot?.model) {
@@ -173,7 +180,16 @@ export default function ChatWindow({
   };
 
   const handleApprovalResponse = async (requestId, action) => {
-    await respondApproval(requestId, action);
+    try {
+      await respondApproval(requestId, action);
+      setPendingApprovals(previous => previous.filter(approval => approval.requestId !== requestId));
+    } catch (failure) {
+      if (failure.status === 404) {
+        setPendingApprovals(previous => previous.filter(approval => approval.requestId !== requestId));
+        setNotice(failure.message);
+      }
+      throw failure;
+    }
   };
 
   const handleImageSelect = async (e) => {
@@ -219,6 +235,8 @@ export default function ChatWindow({
     )
       return;
     setNotice("");
+    setToolEvents([]);
+    setPendingApprovals([]);
 
     const userText = inputPrompt;
     const currentSelected = selectedImage;
@@ -279,6 +297,7 @@ export default function ChatWindow({
                 },
               ]);
             } else if (event.type === "request.opened") {
+              if (window.matchMedia("(pointer: coarse)").matches) textareaRef.current?.blur();
               setPendingApprovals((prev) => [
                 ...prev.filter(
                   (approval) => approval.requestId !== event.requestId,
@@ -298,7 +317,7 @@ export default function ChatWindow({
                 ...prev.slice(-4),
                 { ...event, id: `${event.type}-${Date.now()}` },
               ]);
-              if (event.type === "tool.expired") {
+              if (["tool.expired", "tool.denied", "tool.completed", "tool.failed"].includes(event.type) && event.requestId) {
                 setPendingApprovals((prev) =>
                   prev.filter(
                     (approval) => approval.requestId !== event.requestId,
@@ -315,6 +334,7 @@ export default function ChatWindow({
               );
             } else if (event.type === "turn.completed") {
               setIsStreaming(false);
+              setPendingApprovals([]);
               if (event.ok === false)
                 setMessages((prev) =>
                   prev.map((msg) =>
@@ -323,7 +343,11 @@ export default function ChatWindow({
                 );
             }
           },
-          () => setIsStreaming(false),
+          () => {
+            setIsStreaming(false);
+            setPendingApprovals([]);
+            setNotice("La conexión se interrumpió. Si ya autorizaste un envío, comprueba WhatsApp antes de repetirlo.");
+          },
         );
       }
     } catch (err) {
@@ -331,6 +355,7 @@ export default function ChatWindow({
         err.message || "No se pudo enviar el mensaje. Inténtalo de nuevo.",
       );
       setIsStreaming(false);
+      setPendingApprovals([]);
     }
   };
 
@@ -373,6 +398,7 @@ export default function ChatWindow({
     streamRef.current?.();
     streamRef.current = null;
     setIsStreaming(false);
+    setPendingApprovals([]);
   }
   const suggestions = [
     "Ayúdame a organizar una idea",
@@ -447,13 +473,6 @@ export default function ChatWindow({
               <div className="thread-date">
                 {formatHeaderDate(activeMessages)}
               </div>
-              {pendingApprovals.map((approval) => (
-                <ApprovalCard
-                  key={approval.requestId}
-                  approval={approval}
-                  onRespond={handleApprovalResponse}
-                />
-              ))}
               {toolEvents.map((event) => (
                 <details key={event.id} className="tool-event">
                   <summary>
@@ -494,6 +513,13 @@ export default function ChatWindow({
       </div>
       <div className="composer-area">
         <div className="composer-inner">
+          {pendingApprovals.length > 0 && (
+            <div className="chat-action-reviews" aria-label="Acciones pendientes de autorización">
+              {pendingApprovals.map(approval => (
+                <ApprovalCard key={approval.requestId} approval={approval} onRespond={handleApprovalResponse} />
+              ))}
+            </div>
+          )}
           <input
             ref={fileInputRef}
             type="file"

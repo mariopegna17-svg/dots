@@ -296,7 +296,13 @@ export async function respondApproval(requestId, action) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ request_id: requestId, action }),
   });
-  if (!res.ok) throw new Error('Failed to respond approval');
+  if (!res.ok) {
+    const failure = new Error(res.status === 404
+      ? 'Esta solicitud ya caducó o se cerró. Si ya autorizaste un envío, comprueba su resultado antes de repetirlo; si no, vuelve a pedirlo en este chat.'
+      : 'No se pudo guardar tu decisión. Comprueba la conexión y vuelve a intentarlo.');
+    failure.status = res.status;
+    throw failure;
+  }
   return res.json();
 }
 

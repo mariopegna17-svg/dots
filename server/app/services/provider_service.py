@@ -15,6 +15,8 @@ class ModelProviderService:
         messages: List[Dict[str, str]],
         system_prompt: str = "",
         tools: List[Dict[str, Any]] | None = None,
+        *,
+        response_profile: str = "default",
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
         Submit chat requests to the configured inference endpoint.
@@ -43,7 +45,7 @@ class ModelProviderService:
         if app_settings.get("model_api_wire_api") == "chat_completions":
             async for event in self._stream_chat_completions(
                 base_url, api_key, model, messages, system_prompt,
-                app_settings.get("model_api_headers") or {}, tools,
+                app_settings.get("model_api_headers") or {}, tools, response_profile,
             ):
                 yield event
             return
@@ -51,7 +53,7 @@ class ModelProviderService:
         if app_settings.get("model_api_wire_api") == "responses":
             async for event in self._stream_responses(
                 base_url, api_key, model, messages, system_prompt,
-                app_settings.get("model_api_headers") or {},
+                app_settings.get("model_api_headers") or {}, response_profile,
             ):
                 yield event
             return
@@ -220,7 +222,7 @@ class ModelProviderService:
         yield {"type": "content.delta", "delta": error_display}
         yield {"type": "turn.completed", "ok": False}
 
-    async def _stream_responses(self, base_url, api_key, model, messages, system_prompt, extra_headers):
+    async def _stream_responses(self, base_url, api_key, model, messages, system_prompt, extra_headers, response_profile="default"):
         inputs = []
         for message in messages:
             role = message.get("role", "user")
@@ -236,6 +238,8 @@ class ModelProviderService:
                    "Content-Type": "application/json", "Accept": "text/event-stream"}
         body = {"model": model, "input": inputs, "instructions": system_prompt,
                 "stream": True, "store": False}
+        if response_profile == "communication":
+            body["max_output_tokens"] = 1024
         try:
             async with httpx.AsyncClient(timeout=120.0) as client:
                 async with client.stream("POST", f"{base_url}/responses", json=body, headers=headers) as response:
@@ -269,7 +273,7 @@ class ModelProviderService:
             yield {"type": "turn.completed", "ok": False}
 
 
-    async def _stream_chat_completions(self, base_url, api_key, model, messages, system_prompt, custom_headers, tools=None):
+    async def _stream_chat_completions(self, base_url, api_key, model, messages, system_prompt, custom_headers, tools=None, response_profile="default"):
         """NVIDIA NIM / OpenAI-compatible SSE, including fragmented tool calls."""
         history = []
         if system_prompt:
@@ -282,7 +286,11 @@ class ModelProviderService:
                     {"type": "image_url", "image_url": {"url": message["image_url"]}},
                 ]
             history.append(item)
-        body = {"model": model, "messages": history, "stream": True, "max_tokens": 8192}
+        body = {"model": model, "messages": history, "stream": True, "max_tokens": 1024 if response_profile == "communication" else 8192}
+        if response_profile == "communication" and base_url == "https://integrate.api.nvidia.com/v1" and model == "nvidia/nemotron-3-super-120b-a12b":
+            # NVIDIA documents the non-thinking template for this exact model.
+            # Keep the selected model and ordinary analysis requests unchanged.
+            body["chat_template_kwargs"] = {"enable_thinking": False}
         if tools:
             body.update(tools=tools, tool_choice="auto")
         headers = {**custom_headers, "Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}

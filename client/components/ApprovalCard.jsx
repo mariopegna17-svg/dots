@@ -24,13 +24,13 @@ export default function ApprovalCard({ approval, onRespond }) {
     <section className="action-review" aria-label="Revisar acción del Dot">
       <header>
         {whatsappQR ? <FiMessageCircle /> : communication ? <FiPhone /> : <FiShield />}
-        <strong>Revisa esta acción</strong>
+        <strong>{whatsappQR || approval.tool === "communication.whatsapp" ? "Confirma el envío de WhatsApp" : "Revisa esta acción"}</strong>
       </header>
       <p>{approval.summary}</p>
       {connector && approval.arguments && <details className="connector-approval-details" open><summary>Datos de la acción</summary><pre>{JSON.stringify(approval.arguments, null, 2)}</pre></details>}
       <small>
         {whatsappQR
-          ? "Se usará tu sesión de WhatsApp vinculada por QR."
+          ? "Pulsa Autorizar aquí para enviarlo. Se usará tu sesión de WhatsApp vinculada por QR."
           : communication
           ? "Se usará tu cuenta de Twilio y puede tener coste."
           : "Tu Dot te pide permiso para realizar esta acción."}
