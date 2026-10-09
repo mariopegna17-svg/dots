@@ -268,6 +268,10 @@ class ActionGateway:
             )
             raise ActionPolicyError(reason or "Action policy denied the request.", request_id=request_id)
 
+        # This preference belongs to the authenticated owner, never the model's
+        # arguments. Only the two owner-only WhatsApp adapters are eligible.
+        automatic_whatsapp = invocation.name in {"communication.whatsapp_qr", "communication.whatsapp"} and self.audit.get_settings().get("whatsapp_send_mode", "automatic") == "automatic"
+        requires_approval = definition.requires_approval and not automatic_whatsapp
         request = ActionRequest(
             request_id=request_id,
             thread_id=thread_id,
@@ -279,15 +283,15 @@ class ActionGateway:
             arguments=redact_sensitive(invocation.arguments_for_display),
             preview=redact_sensitive(invocation.preview),
             risk=definition.risk,
-            requires_approval=definition.requires_approval,
-            state="pending_approval" if definition.requires_approval else "approved",
+            requires_approval=requires_approval,
+            state="pending_approval" if requires_approval else "approved",
             created_at=_now(),
         )
         self._pending[request_id] = (request, call)
         self._audit_action("action.requested", request)
 
         approval = None
-        if definition.requires_approval:
+        if requires_approval:
             approval = self.approvals.open(
                 thread_id,
                 bot_id,
@@ -296,7 +300,7 @@ class ActionGateway:
             )
         else:
             self._decisions[request_id] = "allow"
-            self._audit_action("action.approved", request, decision="allow", state="approved")
+            self._audit_action("action.approved", request, decision="allow", state="approved", approval_policy="owner_whatsapp_preference" if automatic_whatsapp else "registered_policy")
         return request, approval
 
     async def wait_for_decision(self, request: ActionRequest) -> str:
@@ -311,7 +315,11 @@ class ActionGateway:
             if request.request_id not in self._pending:
                 return "expired"
 
-            decision = await self.approvals.wait(request.request_id)
+            try:
+                decision = await self.approvals.wait(request.request_id)
+            except asyncio.CancelledError:
+                self.cancel_pending(request)
+                raise
             self._decisions[request.request_id] = decision
             if decision == "allow":
                 self._audit_action("action.approved", request, decision=decision, state="approved")
@@ -323,6 +331,15 @@ class ActionGateway:
                 self._pending.pop(request.request_id, None)
                 self._decisions.pop(request.request_id, None)
             return decision
+
+    def cancel_pending(self, request: ActionRequest) -> None:
+        """Close a proposal whose chat disappeared before dispatch began."""
+        if self._pending.pop(request.request_id, None) is None:
+            return
+        self._decisions.pop(request.request_id, None)
+        self._decision_locks.pop(request.request_id, None)
+        self.approvals.cancel(request.request_id)
+        self._audit_action("action.expired", request, decision="expired", state="expired")
 
     def get_pending_request(self, request_id: str) -> Optional[ActionRequest]:
         """Return a pending request for an authenticated continuation endpoint."""

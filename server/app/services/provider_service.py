@@ -239,8 +239,8 @@ class ModelProviderService:
                    "Content-Type": "application/json", "Accept": "text/event-stream"}
         body = {"model": model, "input": inputs, "instructions": system_prompt,
                 "stream": True, "store": False}
-        if response_profile == "communication":
-            body["max_output_tokens"] = 1024
+        if response_profile in {"communication", "interactive"}:
+            body["max_output_tokens"] = 1024 if response_profile == "communication" else 4096
         try:
             async with httpx.AsyncClient(timeout=120.0) as client:
                 async with client.stream("POST", f"{base_url}/responses", json=body, headers=headers) as response:
@@ -287,10 +287,10 @@ class ModelProviderService:
                     {"type": "image_url", "image_url": {"url": message["image_url"]}},
                 ]
             history.append(item)
-        body = {"model": model, "messages": history, "stream": True, "max_tokens": 1024 if response_profile == "communication" else 8192}
-        if response_profile == "communication" and base_url == "https://integrate.api.nvidia.com/v1" and model == "nvidia/nemotron-3-super-120b-a12b":
+        body = {"model": model, "messages": history, "stream": True, "max_tokens": {"communication": 1024, "interactive": 4096}.get(response_profile, 8192)}
+        if response_profile in {"communication", "interactive"} and base_url == "https://integrate.api.nvidia.com/v1" and model == "nvidia/nemotron-3-super-120b-a12b":
             # NVIDIA documents the non-thinking template for this exact model.
-            # Keep the selected model and ordinary analysis requests unchanged.
+            # Keep the selected model; reasoned requests retain its default template.
             body["chat_template_kwargs"] = {"enable_thinking": False}
         if tools:
             body.update(tools=tools, tool_choice=tool_choice)

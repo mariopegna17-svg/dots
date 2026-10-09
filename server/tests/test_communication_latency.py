@@ -8,10 +8,10 @@ from unittest.mock import AsyncMock, patch
 
 import httpx
 
-from app.services.action_gateway import ActionGateway, action_gateway
-from app.services.agent_service import run_agent
+from app.services.action_gateway import ActionGateway, ActionDefinition, ActionInvocation, action_gateway
+from app.services.agent_service import run_agent, recent_history
 from app.services.approval_broker import ApprovalBroker
-from app.services.communication_actions import execute
+from app.services.communication_actions import execute, prepare_communication_invocation
 from app.services.communication_service import CommunicationError, CommunicationService
 from app.services.memory_service import MemoryService
 from app.services.provider_service import ModelProviderService
@@ -69,11 +69,25 @@ class CommunicationProfileTests(unittest.IsolatedAsyncioTestCase):
         body = await self.provider_request(tool_choice='required')
         self.assertNotIn('tool_choice', body)
 
+    async def test_interactive_fast_profile_keeps_exact_model_and_supports_longer_answers(self):
+        body = await self.provider_request(profile='interactive')
+        self.assertEqual(body['max_tokens'], 4096)
+        self.assertEqual(body['chat_template_kwargs'], {'enable_thinking': False})
+        body = await self.provider_request(profile='interactive', model='custom/exact-model')
+        self.assertEqual(body['max_tokens'], 4096)
+        self.assertNotIn('chat_template_kwargs', body)
+
+    async def test_interactive_responses_uses_protocol_correct_budget(self):
+        body = await self.provider_request(profile='interactive', wire='responses')
+        self.assertEqual(body['max_output_tokens'], 4096)
+        self.assertNotIn('chat_template_kwargs', body)
+
 
 class WhatsAppTurnLatencyTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.storage = StorageService(Path(self.directory.name))
+        self.storage.save_settings({'whatsapp_send_mode': 'review'})
         self.bot_id = self.storage.get_bots()[0]['id']
         self.communications = CommunicationService(self.storage)
         self.qr = WhatsAppQRService(self.storage, self.communications)
@@ -147,6 +161,188 @@ class WhatsAppTurnLatencyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(events[-1], {'type': 'turn.completed', 'ok': True})
         self.assertIn('aceptado', events[-2]['delta'])
         self.assertIn('todavía no está confirmada', events[-2]['delta'])
+
+    async def test_owner_automatic_mode_sends_once_without_a_pending_card_or_expiry(self):
+        self.storage.save_settings({'whatsapp_send_mode': 'automatic'})
+        self.arguments.pop('final_action')
+        events = await self.turn(decision=None)
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(len(self.sends()), 1)
+        self.assertFalse(any(event['type'] == 'request.opened' for event in events))
+        self.assertEqual(self.broker.pending, {})
+        self.assertTrue(events[-1]['ok'])
+        self.assertIn('ha elegido envío automático', self.calls[0]['system_prompt'])
+        automatic = [item for item in self.storage.get_audit_events() if item.get('event') == 'action.approved']
+        self.assertEqual(automatic[0]['approval_policy'], 'owner_whatsapp_preference')
+        self.assertFalse(automatic[0]['requires_approval'])
+        self.assertNotIn('approval', [event.get('stage') for event in events if event['type'] == 'turn.progress'])
+
+    async def test_simple_automatic_batch_finishes_after_first_owner_send_without_duplicate_or_inference(self):
+        self.storage.save_settings({'whatsapp_send_mode': 'automatic'})
+        async def provider(**kwargs):
+            self.calls.append(kwargs)
+            self.assertEqual(len(self.calls), 1)
+            yield {'type': 'tool.call', 'calls': [
+                {'id': 'fixture-status', 'type': 'function', 'function': {'name': 'communication_status', 'arguments': '{}'}},
+                *[{'id': f'fixture-owner-{i}', 'type': 'function', 'function': {'name': 'whatsapp_owner', 'arguments': json.dumps({'message': '2+2=4'})}} for i in range(2)],
+            ]}
+        with patch('app.services.agent_service.provider_service.stream_chat_completion', provider):
+            events = await self.turn(decision=None)
+        self.assertEqual(len(self.sends()), 1)
+        self.assertEqual(len(self.calls), 1)
+        self.assertTrue(events[-1]['ok'])
+        self.assertFalse(any(event['type'] == 'request.opened' for event in events))
+
+    async def test_non_final_duplicate_text_is_not_redispatched_even_after_an_uncertain_send(self):
+        self.storage.save_settings({'whatsapp_send_mode': 'automatic'})
+        self.send_error = True
+        async def provider(**kwargs):
+            self.calls.append(kwargs)
+            if len(self.calls) == 1:
+                yield {'type': 'tool.call', 'calls': [{'id': f'fixture-owner-{i}', 'type': 'function', 'function': {'name': 'whatsapp_owner', 'arguments': json.dumps({'message': '2+2=4', 'final_action': False})}} for i in range(2)]}
+            else:
+                yield {'type': 'content.delta', 'delta': 'Revisa WhatsApp: no se confirmó el envío y no lo he repetido.'}
+                yield {'type': 'turn.completed', 'ok': True}
+        with patch('app.services.agent_service.provider_service.stream_chat_completion', provider):
+            events = await self.turn(decision=None)
+        self.assertEqual(len(self.sends()), 1)
+        self.assertEqual(len(self.calls), 2)
+        failures = [event for event in events if event['type'] == 'tool.failed']
+        self.assertTrue(any('No se repetirá automáticamente' in event.get('error', '') for event in failures))
+
+    async def test_automatic_mode_cannot_disable_review_for_other_tools_or_from_model_arguments(self):
+        self.storage.save_settings({'whatsapp_send_mode': 'automatic'})
+        for name in ('communication.voice', 'connector.send_email', 'youtube.publish', 'workspace.write'):
+            tool, action = name.split('.', 1)
+            self.gateway.register_action(ActionDefinition(name, tool, action, 'Acción de prueba', 'external', True), AsyncMock(return_value={'ok': True}))
+            request, approval = self.gateway.open(self.bot_id, self.bot_id, ActionInvocation(name, {'whatsapp_send_mode': 'automatic', 'requires_approval': False}, {'owner_phone_number': '+34612345678'}, 'Acción de prueba'))
+            self.assertTrue(request.requires_approval)
+            self.assertIsNotNone(approval)
+            self.gateway.cancel_pending(request)
+        self.assertEqual(len(self.sends()), 0)
+
+    async def test_model_arguments_cannot_override_saved_review_policy(self):
+        invocation = await prepare_communication_invocation('whatsapp_owner', self.bot_id, '2+2=4')
+        invocation.arguments['requires_approval'] = False
+        invocation.arguments['whatsapp_send_mode'] = 'automatic'
+        request, approval = self.gateway.open(self.bot_id, self.bot_id, invocation)
+        self.assertTrue(request.requires_approval)
+        self.assertIsNotNone(approval)
+        self.gateway.cancel_pending(request)
+        self.assertEqual(len(self.sends()), 0)
+
+    async def test_simple_send_does_not_wait_for_another_model_call_when_final_flag_is_omitted(self):
+        self.arguments.pop('final_action')
+        events = await self.turn()
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(len(self.sends()), 1)
+        self.assertIn('aceptado', events[-2]['delta'])
+        self.assertEqual([event['stage'] for event in events if event['type'] == 'turn.progress'], ['preparing', 'generating', 'approval', 'sending'])
+
+    async def test_missing_flag_on_a_multi_task_request_can_continue_after_send(self):
+        self.arguments.pop('final_action')
+        self.follow_up = 'También he preparado la explicación solicitada.'
+        events = await self.turn(text='Envíame por WhatsApp cuánto es 2+2 y explica cómo calcularlo aquí.')
+        self.assertEqual(len(self.calls), 2)
+        self.assertEqual(len(self.sends()), 1)
+        self.assertEqual(events[-2]['delta'], self.follow_up)
+
+    async def test_slow_generation_ends_without_opening_permission_or_dispatching(self):
+        cancelled = False
+        async def stalled_provider(**kwargs):
+            nonlocal cancelled
+            try:
+                await asyncio.Event().wait()
+                yield {'type': 'turn.completed', 'ok': True}
+            finally:
+                cancelled = True
+        with patch('app.services.agent_service.provider_service.stream_chat_completion', stalled_provider), patch('app.services.agent_service.COMMUNICATION_GENERATION_TIMEOUT', 0.01):
+            events = await self.turn()
+        self.assertTrue(cancelled)
+        self.assertIn('tardando demasiado', events[-2]['delta'])
+        self.assertFalse(events[-1]['ok'])
+        self.assertEqual(len(self.sends()), 0)
+        self.assertEqual(self.broker.pending, {})
+
+    async def test_review_time_is_not_counted_as_generation_time(self):
+        resolver = None
+        async def approve_later(request_id):
+            await asyncio.sleep(0.03)
+            self.broker.resolve(request_id, 'allow')
+        events = []
+        with patch('app.services.agent_service.COMMUNICATION_GENERATION_TIMEOUT', 0.01):
+            async for event in run_agent(self.bot_id, 'fixture-model', [{'role': 'user', 'content': 'Envíame por WhatsApp cuánto es 2+2.'}], ''):
+                events.append(event)
+                if event['type'] == 'request.opened':
+                    resolver = asyncio.create_task(approve_later(event['requestId']))
+            await resolver
+        self.assertEqual(len(self.sends()), 1)
+        self.assertTrue(events[-1]['ok'])
+
+    async def test_closing_chat_at_permission_card_expires_proposal_and_cannot_send(self):
+        stream = run_agent(self.bot_id, 'fixture-model', [{'role': 'user', 'content': 'Envíame por WhatsApp cuánto es 2+2.'}], '')
+        request_id = None
+        async for event in stream:
+            if event['type'] == 'request.opened':
+                request_id = event['requestId']
+                break
+        await stream.aclose()
+        self.assertEqual(self.broker.pending, {})
+        self.assertIsNone(self.gateway.get_pending_request(request_id))
+        self.assertFalse(self.broker.resolve(request_id, 'allow'))
+        self.assertEqual(self.storage.get_approvals()[-1]['status'], 'expired')
+        self.assertEqual(len(self.sends()), 0)
+
+    async def test_cancelling_while_waiting_for_review_closes_saved_pending_state(self):
+        opened = asyncio.Event()
+        async def consume():
+            async for event in run_agent(self.bot_id, 'fixture-model', [{'role': 'user', 'content': 'Envíame por WhatsApp cuánto es 2+2.'}], ''):
+                if event['type'] == 'request.opened':
+                    opened.set()
+        task = asyncio.create_task(consume())
+        await opened.wait()
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        self.assertEqual(self.broker.pending, {})
+        approval = self.storage.get_approvals()[-1]
+        self.assertEqual(approval['status'], 'expired')
+        self.assertIsNone(self.gateway.get_pending_request(approval['request_id']))
+        self.assertEqual(len(self.sends()), 0)
+
+    async def test_normal_chat_is_fast_by_default_and_reasoned_mode_remains_available(self):
+        captured = []
+        async def provider(**kwargs):
+            captured.append(kwargs)
+            yield {'type': 'content.delta', 'delta': 'Hola.'}
+            yield {'type': 'turn.completed', 'ok': True}
+        messages = [{'role': 'user' if i % 2 == 0 else 'assistant', 'content': str(i) + 'x' * 1000} for i in range(60)] + [{'role': 'user', 'content': 'Hola', 'image_url': 'data:image/png;base64,fixture'}]
+        with patch('app.services.agent_service.provider_service.stream_chat_completion', provider):
+            await self.turn(text='Hola')
+            self.assertEqual(captured[-1]['response_profile'], 'interactive')
+            [event async for event in run_agent(self.bot_id, 'fixture-model', messages, 'Persona')]
+            self.assertLessEqual(len(captured[-1]['messages']), 24)
+            self.assertEqual(captured[-1]['messages'][-1], messages[-1])
+            self.storage.save_settings({'model_response_mode': 'reasoned'})
+            events = [event async for event in run_agent(self.bot_id, 'fixture-model', messages, 'Persona')]
+        self.assertNotIn('response_profile', captured[-1])
+        self.assertEqual(captured[-1]['messages'], messages)
+        self.assertTrue(events[-1]['ok'])
+
+    async def test_voice_uses_short_generation_and_real_tools_with_review(self):
+        captured = []
+        async def provider(**kwargs):
+            captured.append(kwargs)
+            yield {'type': 'content.delta', 'delta': 'Hola, ¿cómo estás?'}
+            yield {'type': 'turn.completed', 'ok': True}
+        self.storage.save_settings({'model_response_mode': 'reasoned'})
+        with patch('app.services.agent_service.provider_service.stream_chat_completion', provider):
+            events = [event async for event in run_agent(self.bot_id, 'fixture-model', [{'role': 'user', 'content': 'Hola'}], '', response_mode='voice')]
+        self.assertEqual(captured[0]['response_profile'], 'communication')
+        self.assertIn('una a cuatro frases', captured[0]['system_prompt'])
+        self.assertIn('hablar no equivale a autorizar', captured[0]['system_prompt'])
+        self.assertIn('whatsapp_owner', [tool['function']['name'] for tool in captured[0]['tools']])
+        self.assertTrue(events[-1]['ok'])
 
     async def test_common_spanish_spellings_of_whatsapp_use_the_same_fast_path(self):
         for channel in ('whatshapp', 'wasap', 'whats app'):
@@ -300,3 +496,21 @@ class WhatsAppTurnLatencyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(reply, '2+2=4')
         self.assertEqual(captured[0]['response_profile'], 'communication')
         self.assertNotIn('tools', captured[0])
+
+
+class RecentInferenceHistoryTests(unittest.TestCase):
+    def test_recent_window_retains_persona_image_and_complete_latest_question(self):
+        persona = {'role': 'system', 'content': 'Persona persistente.'}
+        old = [{'role': 'user' if i % 2 == 0 else 'assistant', 'content': f'{i}: ' + 'x' * 1500} for i in range(60)]
+        latest = {'role': 'user', 'content': 'Última pregunta sin recortar.', 'image_url': 'data:image/png;base64,fixture'}
+        recent = recent_history([persona, *old, latest])
+        self.assertIs(recent[0], persona)
+        self.assertIs(recent[-1], latest)
+        self.assertLessEqual(len(recent), 25)
+        self.assertLessEqual(sum(len(message['content']) for message in recent[1:]), 24000)
+        self.assertLess(len(recent), len(old))
+
+    def test_a_large_latest_question_is_never_silently_cut(self):
+        latest = {'role': 'user', 'content': 'x' * 30000}
+        recent = recent_history([{'role': 'assistant', 'content': 'Viejo'}, latest])
+        self.assertEqual(recent, [latest])

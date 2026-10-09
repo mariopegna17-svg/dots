@@ -41,6 +41,12 @@ export default function AppSettingsDrawer({
   const [showKey, setShowKey] = useState(false);
   const [modelIds, setModelIds] = useState("");
   const [defaultModel, setDefaultModel] = useState("");
+  const [responseMode, setResponseMode] = useState("fast");
+  const [responseModeSaving, setResponseModeSaving] = useState(false);
+  const [responseModeNotice, setResponseModeNotice] = useState("");
+  const [whatsappSendMode, setWhatsappSendMode] = useState("automatic");
+  const [whatsappModeSaving, setWhatsappModeSaving] = useState(false);
+  const [whatsappModeNotice, setWhatsappModeNotice] = useState("");
   const [headersConfiguradas, setHeadersConfiguradas] = useState(false);
   const [headersMode, setHeadersMode] = useState("keep");
   const [headers, setHeaders] = useState([{ name: "", value: "" }]);
@@ -76,6 +82,10 @@ export default function AppSettingsDrawer({
       setKeyConfiguradas(Boolean(data.model_api_key_configured));
       setModelIds((data.model_ids || []).join("\n"));
       setDefaultModel(data.default_model || currentModel || "gpt-5-mini");
+      setResponseMode(data.model_response_mode || "fast");
+      setResponseModeNotice("");
+      setWhatsappSendMode(data.whatsapp_send_mode || "automatic");
+      setWhatsappModeNotice("");
       setHeadersConfiguradas(Boolean(data.model_api_headers_configured));
       setHeadersMode("keep");
       setHeaders([{ name: "", value: "" }]);
@@ -188,6 +198,53 @@ export default function AppSettingsDrawer({
           <AppearancePanel />
           <InstallAppPanel />
           <PersistencePanel />
+          <section className={`${cardClass} response-mode-settings`} aria-labelledby="response-mode-title">
+            <h3 id="response-mode-title">Velocidad de respuesta</h3>
+            <p>Elige cómo quieres conversar con tus Dots.</p>
+            <fieldset disabled={!loaded || responseModeSaving}>
+              <legend className="sr-only">Modo de respuesta</legend>
+              {[{ value: "fast", label: "Rápida", description: "Para conversar y resolver tareas cotidianas." }, { value: "reasoned", label: "Razonamiento", description: "Dedica más tiempo a los problemas complejos." }].map((mode) => (
+                <label key={mode.value} className={responseMode === mode.value ? "is-selected" : ""}>
+                  <input type="radio" name="response-mode" value={mode.value} checked={responseMode === mode.value} onChange={async () => {
+                    setResponseModeSaving(true);
+                    setResponseModeNotice("");
+                    try {
+                      const saved = await saveSettings({ model_response_mode: mode.value });
+                      setResponseMode(saved.model_response_mode);
+                      setResponseModeNotice(`Modo ${mode.label.toLowerCase()} guardado.`);
+                    } catch (failure) {
+                      setResponseModeNotice(failure.message || "No se pudo guardar el modo.");
+                    } finally {
+                      setResponseModeSaving(false);
+                    }
+                  }} />
+                  <span><strong>{mode.label}</strong><small>{mode.description}</small></span>
+                </label>
+              ))}
+            </fieldset>
+            {responseModeNotice && <p role="status">{responseModeNotice}</p>}
+          </section>
+          <section className={`${cardClass} whatsapp-mode-settings`} aria-labelledby="whatsapp-mode-title">
+            <h3 id="whatsapp-mode-title">Envíos a mi WhatsApp</h3>
+            <label>
+              <input type="checkbox" checked={whatsappSendMode === "automatic"} disabled={!loaded || whatsappModeSaving} onChange={async (event) => {
+                const mode = event.target.checked ? "automatic" : "review";
+                setWhatsappModeSaving(true);
+                setWhatsappModeNotice("");
+                try {
+                  const saved = await saveSettings({ whatsapp_send_mode: mode });
+                  setWhatsappSendMode(saved.whatsapp_send_mode);
+                  setWhatsappModeNotice(mode === "automatic" ? "Envío automático activado." : "Revisión antes de enviar activada.");
+                } catch (failure) {
+                  setWhatsappModeNotice(failure.message || "No se pudo guardar tu preferencia.");
+                } finally {
+                  setWhatsappModeSaving(false);
+                }
+              }} />
+              <span><strong>Enviar sin pedirme confirmación</strong><small>Los mensajes que le pidas al Dot se envían a tu número vinculado. Desactívalo para revisar cada envío en el chat.</small></span>
+            </label>
+            {whatsappModeNotice && <p role="status">{whatsappModeNotice}</p>}
+          </section>
           {bot && (
             <form
               className={cardClass}

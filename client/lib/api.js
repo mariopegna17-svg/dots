@@ -125,7 +125,7 @@ export async function fetchChatHistory(threadId) {
   }
 }
 
-export async function sendMessage(threadId, botId, text, model = 'gpt-5-mini', imageUrl = null) {
+export async function sendMessage(threadId, botId, text, model = 'gpt-5-mini', imageUrl = null, options = {}) {
   try {
     const res = await apiFetch(`${API_BASE_URL}/chat/send`, {
       method: 'POST',
@@ -136,6 +136,7 @@ export async function sendMessage(threadId, botId, text, model = 'gpt-5-mini', i
         user_text: text,
         model,
         image_url: imageUrl,
+        response_mode: options.responseMode === 'voice' ? 'voice' : 'text',
       }),
     });
     if (!res.ok) throw new Error('Failed to send message');
@@ -241,8 +242,10 @@ export async function fetchAuditEvents(limit = 100) {
   }
 }
 
-export function subscribeToChatStream(threadId, model, onEvent, onError) {
-  const url = `${API_BASE_URL}/chat/stream/${threadId}?model=${encodeURIComponent(model)}`;
+export function subscribeToChatStream(threadId, model, onEvent, onError, options = {}) {
+  const query = new URLSearchParams({ model });
+  if (options.responseMode === 'voice') query.set('response_mode', 'voice');
+  const url = `${API_BASE_URL}/chat/stream/${encodeURIComponent(threadId)}?${query}`;
   let eventSource = null;
   let cancelled = false;
 

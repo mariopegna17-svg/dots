@@ -4,6 +4,7 @@ import "./liquid-glass.css";
 import "./connectors.css";
 import "./team.css";
 import "./appearance.css";
+import "./voice-mobile.css";
 import PwaProvider from "../components/PwaProvider";
 
 export const metadata = {

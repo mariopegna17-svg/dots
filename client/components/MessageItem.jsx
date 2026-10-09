@@ -1,9 +1,10 @@
 "use client";
+import { memo } from "react";
 import ReactMarkdown from "react-markdown";
 import { FiAlertCircle } from "react-icons/fi";
 import MascotAvatar, { botTone } from "./MascotAvatar";
 
-export default function MessageItem({ message, bot, activity = "idle" }) {
+function MessageItem({ message, bot, activity = "idle" }) {
   const user = message.sender === "user";
   const error =
     message.isError || message.text?.toLowerCase().startsWith("error:");
@@ -67,3 +68,5 @@ export default function MessageItem({ message, bot, activity = "idle" }) {
     </div>
   );
 }
+
+export default memo(MessageItem);

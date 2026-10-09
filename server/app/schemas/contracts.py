@@ -51,6 +51,7 @@ class TurnRequest(BaseModel):
     user_text: str
     model: Optional[str] = None
     image_url: Optional[str] = None
+    response_mode: Literal["text", "voice"] = "text"
 
 
 class ApprovalDecision(BaseModel):
@@ -106,6 +107,8 @@ class AppSettingsSchema(BaseModel):
     model_api_key_configured: bool = False
     composio_api_key_configured: bool = False
     default_model: str = "gpt-5-mini"
+    model_response_mode: Literal["fast", "reasoned"] = "fast"
+    whatsapp_send_mode: Literal["automatic", "review"] = "automatic"
     theme: Literal["dark", "light", "aurora", "midnight"] = "dark"
     theme_accent: Literal["blue", "mint", "violet", "rose"] = "blue"
     theme_density: Literal["comfortable", "compact"] = "comfortable"

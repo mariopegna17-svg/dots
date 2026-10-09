@@ -23,6 +23,8 @@ SETTING_KEYS = {
     "composio_api_key",
     "composio_key",
     "default_model",
+    "model_response_mode",
+    "whatsapp_send_mode",
     "theme",
     "theme_accent", "theme_density", "theme_motion",
     "team_bot_ids", "team_coordinator_id",
@@ -69,6 +71,8 @@ class StorageService:
             "model_ids": [settings.DEFAULT_MODEL],
             "composio_api_key": settings.COMPOSIO_API_KEY,
             "default_model": settings.DEFAULT_MODEL,
+            "model_response_mode": "fast",
+            "whatsapp_send_mode": "automatic",
             "theme": "dark",
         }
 
@@ -343,6 +347,39 @@ class StorageService:
             decoded = self._decode_payload(raw_value)
             values[key] = raw_value if decoded is None else decoded
         return values
+
+    def _chat_turn_key(self, thread_id: str, message_id: str) -> str:
+        return "chat_turn/" + json.dumps([self.owner_id, thread_id, message_id], separators=(",", ":"))
+
+    def claim_chat_turn(self, thread_id: str, message_id: str) -> bool:
+        """Atomically reserve an inference/action turn before any dispatch.
+
+        A restart never proves a previously started side effect did not happen.
+        Retain the reservation; a new user message creates a new turn instead.
+        """
+        record = {"thread_id": thread_id, "message_id": message_id, "status": "started", "created_at": _now()}
+        with self.database.connect() as connection:
+            inserted = connection.execute(
+                "INSERT OR IGNORE INTO storage_meta(key, value) VALUES (?, ?)",
+                (self._chat_turn_key(thread_id, message_id), json.dumps(record)),
+            )
+            return inserted.rowcount == 1
+
+    def finish_chat_turn(self, thread_id: str, message_id: str, status: str) -> None:
+        if status not in {"completed", "failed", "cancelled"}:
+            raise ValueError("Invalid terminal chat status.")
+        key = self._chat_turn_key(thread_id, message_id)
+        with self.database.connect() as connection:
+            row = connection.execute("SELECT value FROM storage_meta WHERE key = ?", (key,)).fetchone()
+            if not row:
+                return
+            record = {**json.loads(row["value"]), "status": status, "finished_at": _now()}
+            connection.execute("UPDATE storage_meta SET value = ? WHERE key = ?", (json.dumps(record), key))
+
+    def get_chat_turn(self, thread_id: str, message_id: str) -> Optional[Dict[str, Any]]:
+        with self.database.connect() as connection:
+            row = connection.execute("SELECT value FROM storage_meta WHERE key = ?", (self._chat_turn_key(thread_id, message_id),)).fetchone()
+        return json.loads(row["value"]) if row else None
 
     def get_public_settings(self) -> Dict[str, Any]:
         values = self.get_settings()

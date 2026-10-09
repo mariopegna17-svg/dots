@@ -51,6 +51,10 @@ No hay respuestas de IA simuladas cuando falta una clave. El chat informa del re
 
 ## Memoria y rutinas
 
+El chat usa **respuesta rápida** por defecto. Puedes elegir **Rápida** o **Razonamiento** en Ajustes → Velocidad de respuesta; se conserva el modelo seleccionado. El modo rápido carga hasta 24 mensajes recientes y 24 000 caracteres sin borrar el historial guardado ni la Memoria. Para el modelo NVIDIA predeterminado utiliza la plantilla sin razonamiento extendido. La generación de WhatsApp y voz tiene un límite de 30 segundos y muestra su progreso; los tiempos del alojamiento y del proveedor pueden variar.
+
+Pulsa **Voz** en el chat para iniciar la [conversación manos libres](VOICE.md): habla, haz una pausa y el Dot responderá en voz alta antes de volver a escuchar. Usa el micrófono y la voz del navegador, sin nuevas claves. Los mensajes que pidas enviar a tu propio WhatsApp salen automáticamente por defecto; puedes activar la revisión manual en Ajustes → Envíos a mi WhatsApp. Los permisos de llamadas, correos, publicaciones y otras acciones conservan sus controles.
+
 Selecciona un agente y abre Memoria para guardar preferencias; también puedes pedirle «recuerda que prefiero respuestas breves en español». Abre Rutinas para delegar trabajo, escribir su instrucción y elegir fecha y repetición. Una fecha vacía ejecuta la tarea cuanto antes. El navegador convierte la hora local a una fecha con zona horaria; los intervalos recurrentes se calculan desde el final de la última ejecución y no equivalen a horarios de calendario con cambios de hora.
 
 Los resultados se guardan y aparecen en el chat, que se actualiza periódicamente cuando no está generando una respuesta. Las rutinas usan la memoria y el modelo del agente y tienen acceso a búsqueda web, pero **no** a escrituras, terminal o navegación que necesiten aprobación. Las conversaciones interactivas sí pueden solicitar esas herramientas. El bucle está limitado a seis rondas y las rutinas a diez minutos por ejecución.
@@ -63,6 +67,7 @@ Ejecuta **una sola instancia de la API, con un solo worker**: las sesiones y los
 cd server
 DATA_DIR=/tmp/dots-tests COMPUTER_PROVIDER=fake .venv/bin/python -m unittest discover -s tests -q
 cd ../client
+node --test tests/handsFreeVoice.test.mjs
 npm run build
 ```
 
@@ -80,11 +85,13 @@ Para exponerlo fuera de loopback, configura un reverse proxy HTTPS, `AUTH_COOKIE
 
 ## Validación en este entorno
 
-243 pruebas de la API y del arranque de producción y 12 del servicio de WhatsApp pasadas, y compilación de producción completada. Se comprobó una tarea real con NVIDIA: dos Dots aportaron análisis, revisaron las ideas del otro y entregaron una síntesis del coordinador. El modelo real también descubrió Gmail, eligió una acción conforme a su esquema y resumió los correos de prueba que devolvió el adaptador controlado; no se accedió a una cuenta de correo externa ni se enviaron mensajes. Las credenciales siguen cifradas y los datos temporales de prueba se eliminaron.
+271 pruebas de la API y del arranque de producción, 18 del modo voz y 12 del servicio de WhatsApp pasadas, y compilación de producción completada. Se comprobó una tarea real con NVIDIA: dos Dots aportaron análisis, revisaron las ideas del otro y entregaron una síntesis del coordinador. El modelo real también descubrió Gmail, eligió una acción conforme a su esquema y resumió los correos de prueba que devolvió el adaptador controlado; no se accedió a una cuenta de correo externa ni se enviaron mensajes. Las credenciales siguen cifradas y los datos temporales de prueba se eliminaron.
 
 Las comprobaciones de navegador cubrieron temas guardados y previsualizados, equipos, conectores, revisión de vídeos, navegación móvil y la instalación web. El contenedor final funcionó con un límite de 512 MB, sin reinicios ni errores JavaScript. Las API privadas rechazaron visitantes anónimos y el service worker almacenó solo el icono y la página sin conexión.
 
 Se reprodujo el caso de WhatsApp QR conectado con solo Gmail en Composio. El modelo real de NVIDIA corrigió la respuesta anterior equivocada y eligió el envío QR al propietario. La aprobación, el destinatario, la deduplicación, los cambios de sesión y los errores se probaron con sockets y transportes controlados; no se enviaron mensajes a teléfonos reales.
+
+NVIDIA también preparó un envío automático al propietario sin tarjetas de autorización, con un solo envío del adaptador controlado. El navegador verificó conversación de voz, retorno a escucha sin eco, interrupción, permisos denegados y cambio de Dot usando reconocimiento y audio simulados. Se probaron pantallas pequeñas y apaisadas, controles táctiles, autorizaciones extensas y conservación de la posición de lectura; no se verificó el micrófono de un iPhone físico.
 
 La autorización y publicación de YouTube se comprobaron con respuestas controladas y el contrato oficial del proveedor; no se autorizó un canal real ni se publicó un vídeo. La instalación se comprobó con emulación de iPhone, sin una instalación física en el dispositivo. Esta versión necesita desplegarse en Render desde el último commit para actualizar la web pública.
 

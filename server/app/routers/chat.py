@@ -1,12 +1,14 @@
 import json
 import uuid
 import asyncio
+from contextlib import aclosing
+from collections import OrderedDict
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from app.config import settings
 from fastapi import APIRouter, Query
 from sse_starlette.sse import EventSourceResponse
-from typing import List, Optional
+from typing import List, Optional, Literal
 
 from app.schemas.contracts import TurnRequest, Message
 from app.services.storage_service import storage_service
@@ -25,6 +27,8 @@ from app.services.workspace_service import (
 )
 
 router = APIRouter(prefix="/api/v1/chat", tags=["chat"])
+_active_turns = {}
+_finished_turns = OrderedDict()
 
 @router.get("/history/{thread_id}", response_model=List[Message])
 async def get_history(thread_id: str):
@@ -52,7 +56,7 @@ async def send_message(req: TurnRequest):
     return {"status": "ok", "message": user_msg}
 
 @router.get("/stream/{thread_id}")
-async def stream_turn(thread_id: str, model: Optional[str] = Query(None)):
+async def stream_turn(thread_id: str, model: Optional[str] = Query(None), response_mode: Literal["text", "voice"] = Query("text")):
     """
     SSE stream endpoint broadcasting real-time tokens & tool events for a given thread.
     """
@@ -75,7 +79,7 @@ async def stream_turn(thread_id: str, model: Optional[str] = Query(None)):
             })
 
 
-    async def event_generator():
+    async def generate_events():
         bot_msg_id = f"msg-{uuid.uuid4().hex}"
         accumulated_text = ""
         tool_context = ""
@@ -219,13 +223,15 @@ async def stream_turn(thread_id: str, model: Optional[str] = Query(None)):
         provider_prompt = f"{system_prompt}\n\n{tool_context}" if tool_context else system_prompt
 
         # Stream content from inference adapter
+        agent_stream = run_agent(
+            bot_id=thread_id,
+            model=selected_model,
+            messages=formatted_history,
+            system_prompt=provider_prompt,
+            response_mode=response_mode,
+        )
         try:
-            async for event in run_agent(
-                bot_id=thread_id,
-                model=selected_model,
-                messages=formatted_history,
-                system_prompt=provider_prompt
-            ):
+            async for event in agent_stream:
                 if event["type"] == "content.delta":
                     accumulated_text += event["delta"]
                     yield {
@@ -256,7 +262,47 @@ async def stream_turn(thread_id: str, model: Optional[str] = Query(None)):
                     }
                 else:
                     yield {"event": "message", "data": json.dumps(event)}
-        except asyncio.CancelledError:
+        finally:
+            await agent_stream.aclose()
+
+    async def event_generator():
+        latest_user = next((item for item in reversed(history) if item.get("sender") == "user"), None)
+        message_id = latest_user.get("id") if latest_user else None
+        turn_key = (thread_id, message_id) if message_id else None
+        rejected = thread_id in _active_turns or (turn_key and turn_key in _finished_turns) or (latest_user and history[-1].get("sender") == "bot")
+        if not rejected and turn_key:
+            rejected = not storage_service.claim_chat_turn(thread_id, message_id)
+        if rejected:
+            rejected_message_id = f"msg-{uuid.uuid4().hex}"
+            yield {"event": "message", "data": json.dumps({"type": "turn.started", "botMsgId": rejected_message_id, "model": selected_model})}
+            yield {"event": "message", "data": json.dumps({"type": "content.delta", "botMsgId": rejected_message_id, "delta": "Esta petición ya está en curso o ha terminado. Revisa el chat; para intentarlo de nuevo, escribe otra petición. No se ha repetido ningún envío."})}
+            yield {"event": "message", "data": json.dumps({"type": "turn.completed", "ok": False, "botMsgId": rejected_message_id})}
+            return
+        _active_turns[thread_id] = message_id
+        terminal_status = "cancelled"
+        opened_requests = []
+        try:
+            async with aclosing(generate_events()) as stream:
+                async for event in stream:
+                    data = json.loads(event["data"])
+                    if data.get("type") == "turn.completed":
+                        terminal_status = "failed" if data.get("ok") is False else "completed"
+                    if data.get("type") == "request.opened":
+                        opened_requests.append(data["requestId"])
+                    yield event
+        except Exception:
+            terminal_status = "failed"
             raise
+        finally:
+            for request_id in opened_requests:
+                pending = action_gateway.get_pending_request(request_id)
+                if pending:
+                    action_gateway.cancel_pending(pending)
+            _active_turns.pop(thread_id, None)
+            if turn_key:
+                storage_service.finish_chat_turn(thread_id, message_id, terminal_status)
+                _finished_turns[turn_key] = True
+                while len(_finished_turns) > 512:
+                    _finished_turns.popitem(last=False)
 
     return EventSourceResponse(event_generator())

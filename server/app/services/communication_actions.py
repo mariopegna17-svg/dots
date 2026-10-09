@@ -37,14 +37,21 @@ def communication_invocation(name, bot_id, message):
         raise CommunicationError("Configura Llamadas y WhatsApp antes de pedir esta acción.")
     number = communication_service.config()["owner_phone_number"]
     label = "Llamarte por teléfono" if channel == "voice" else "Enviarte un WhatsApp"
-    return ActionInvocation(name=f"communication.{channel}", arguments=data.model_dump(), target={"owner_phone_number": number}, preview=f"{label} a {number}: {data.message}")
+    config = communication_service.config()
+    expected = {key: config[key] for key in ("owner_phone_number", "twilio_account_sid", "twilio_voice_number" if channel == "voice" else "twilio_whatsapp_number")}
+    return ActionInvocation(name=f"communication.{channel}", arguments={**data.model_dump(), "expected": expected}, display_arguments=data.model_dump(), target={"owner_phone_number": number}, preview=f"{label} a {number}: {data.message}")
 
 
 async def execute(invocation):
     if invocation.name == "communication.whatsapp_qr":
         data = CommunicationMessage.model_validate({key: invocation.arguments[key] for key in ("bot_id", "message")})
         return await whatsapp_qr_service.send_owner(data, invocation.arguments["expected"], invocation.arguments["event_id"])
-    return await communication_service.send(invocation.name.split(".")[1], CommunicationMessage.model_validate(invocation.arguments))
+    expected = invocation.arguments.get("expected")
+    config = communication_service.config()
+    if not expected or any(config.get(key) != value for key, value in expected.items()) or config["owner_phone_number"] != invocation.target.get("owner_phone_number"):
+        raise CommunicationError("La cuenta o el destinatario de Twilio han cambiado. Solicita el envío otra vez.")
+    data = CommunicationMessage.model_validate({key: invocation.arguments[key] for key in ("bot_id", "message")})
+    return await communication_service.send(invocation.name.split(".")[1], data)
 
 
 for channel, intent in [("voice", "Llamar al número verificado del propietario mediante Twilio."), ("whatsapp", "Enviar un WhatsApp al propietario mediante Twilio."), ("whatsapp_qr", "Enviar un WhatsApp al propietario con su sesión QR vinculada.")]:

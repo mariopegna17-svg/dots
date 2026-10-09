@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useMemo } from "react";
+import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import MessageItem from "./MessageItem";
 import ApprovalCard from "./ApprovalCard";
+import HandsFreeVoice from "./HandsFreeVoice";
 import ModelPicker from "./ModelPicker";
 import MascotAvatar, { botTone } from "./MascotAvatar";
 import { agentLabel } from "./Overview";
@@ -16,6 +17,7 @@ import {
   FiSquare,
   FiArrowUpRight,
   FiCpu,
+  FiArrowDown,
 } from "react-icons/fi";
 import {
   sendMessage,
@@ -77,6 +79,16 @@ export default function ChatWindow({
   const streamRef = useRef(null);
   const textareaRef = useRef(null);
   const recognitionRef = useRef(null);
+  const threadRef = useRef(null);
+  const nearBottomRef = useRef(true);
+  const turnEpochRef = useRef(0);
+  const sendLockedRef = useRef(false);
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
+  const [voiceActivity, setVoiceActivity] = useState({ state: "idle", active: false });
+  const [completedTurn, setCompletedTurn] = useState(null);
+  const [streamError, setStreamError] = useState("");
+  const [turnProgress, setTurnProgress] = useState("");
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [notice, setNotice] = useState("");
   const [voiceSupported, setVoiceSupported] = useState(false);
 
@@ -98,6 +110,13 @@ export default function ChatWindow({
   }, [inputPrompt]);
 
   useEffect(() => {
+    turnEpochRef.current += 1;
+    sendLockedRef.current = false;
+    nearBottomRef.current = true;
+    setShowJumpToLatest(false);
+    setCompletedTurn(null);
+    setStreamError("");
+    setTurnProgress("");
     setIsStreaming(false);
     setStreamingMessageId(null);
     setPendingApprovals([]);
@@ -105,6 +124,7 @@ export default function ChatWindow({
     setNotice("");
     setSelectedImage(null);
     return () => {
+      turnEpochRef.current += 1;
       streamRef.current?.();
       streamRef.current = null;
       recognitionRef.current?.stop();
@@ -112,9 +132,18 @@ export default function ChatWindow({
   }, [bot?.id]);
 
   useEffect(() => {
+    if (!isStreaming) return;
+    const started = Date.now();
+    setElapsedSeconds(0);
+    const timer = window.setInterval(() => setElapsedSeconds(Math.floor((Date.now() - started) / 1000)), 1000);
+    return () => window.clearInterval(timer);
+  }, [isStreaming]);
+
+  useEffect(() => {
     if (!bot?.id || isStreaming) return;
     let disposed = false;
     const timer = window.setInterval(async () => {
+      if (document.hidden) return;
       try {
         const history = await fetchChatHistory(bot.id);
         if (!disposed) setMessages(history);
@@ -140,7 +169,7 @@ export default function ChatWindow({
     ? streamingMessage?.text
       ? "responding"
       : "thinking"
-    : isListening
+    : isListening || (voiceActivity.active && voiceActivity.state === "listening")
       ? "listening"
       : "idle";
   const whatsappSending = isStreaming && toolEvents.at(-1)?.type === "tool.started" && ["whatsapp_owner", "communication.whatsapp_qr", "communication.whatsapp"].includes(toolEvents.at(-1)?.tool);
@@ -148,6 +177,10 @@ export default function ChatWindow({
     ? "Esperando tu autorización"
     : whatsappSending
     ? "Enviando a WhatsApp…"
+    : isStreaming && turnProgress
+    ? turnProgress
+    : voiceActivity.active && voiceActivity.state === "speaking"
+    ? "Hablando contigo…"
     : {
         thinking: "Pensando…",
         responding: "Escribiendo…",
@@ -163,11 +196,17 @@ export default function ChatWindow({
   }, [bot, defaultModel]);
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    nearBottomRef.current = true;
+    setShowJumpToLatest(false);
+    if (threadRef.current) threadRef.current.scrollTop = threadRef.current.scrollHeight;
   };
 
   useEffect(() => {
-    if (activeMessages.length) scrollToBottom();
+    if (!activeMessages.length || !nearBottomRef.current) return;
+    const frame = window.requestAnimationFrame(() => {
+      if (threadRef.current && nearBottomRef.current) threadRef.current.scrollTop = threadRef.current.scrollHeight;
+    });
+    return () => window.cancelAnimationFrame(frame);
   }, [activeMessages, isStreaming]);
 
   const handleModelChange = async (newModel) => {
@@ -224,25 +263,40 @@ export default function ChatWindow({
     }
   };
 
-  const handleSendMessage = async (e) => {
+  const handleSendMessage = async (e, spokenText = null) => {
     e?.preventDefault();
+    const fromVoice = typeof spokenText === "string";
+    const userText = fromVoice ? spokenText.trim() : inputPrompt;
+    const currentSelected = fromVoice ? null : selectedImage;
     if (
-      (!inputPrompt.trim() && !selectedImage) ||
+      (!userText.trim() && !currentSelected) ||
       isStreaming ||
+      sendLockedRef.current ||
       !bot?.id ||
-      selectedImage?.isUploading ||
-      selectedImage?.error
+      historyLoading ||
+      currentSelected?.isUploading ||
+      currentSelected?.error
     )
-      return;
+      return false;
+    sendLockedRef.current = true;
+    const epoch = ++turnEpochRef.current;
+    const responseMode = fromVoice || voiceActivity.active ? "voice" : "text";
+    recognitionRef.current?.abort();
+    setIsListening(false);
+    nearBottomRef.current = true;
+    setShowJumpToLatest(false);
+    setCompletedTurn(null);
+    setStreamError("");
+    setTurnProgress("Preparando tu respuesta…");
+    setIsStreaming(true);
     setNotice("");
     setToolEvents([]);
     setPendingApprovals([]);
 
-    const userText = inputPrompt;
-    const currentSelected = selectedImage;
-
-    setInputPrompt("");
-    setSelectedImage(null);
+    if (!fromVoice) {
+      setInputPrompt("");
+      setSelectedImage(null);
+    }
 
     let finalImageUrl = currentSelected?.uploadedUrl || null;
 
@@ -252,9 +306,14 @@ export default function ChatWindow({
         const res = await uploadImage(currentSelected.file);
         finalImageUrl = res.url;
       } catch (err) {
-        console.error("Image upload failed on send:", err);
+        if (epoch !== turnEpochRef.current) return false;
+        setNotice(err.message || "No se pudo adjuntar la imagen.");
+        sendLockedRef.current = false;
+        setIsStreaming(false);
+        return false;
       }
     }
+    if (epoch !== turnEpochRef.current) return false;
 
     const userMsgObj = {
       id: `temp-user-${Date.now()}`,
@@ -275,15 +334,19 @@ export default function ChatWindow({
           userText,
           activeModel,
           finalImageUrl,
+          { responseMode },
         );
+        if (epoch !== turnEpochRef.current) return false;
         if (sent.status !== "ok")
           throw new Error(sent.detail || "No se pudo enviar el mensaje.");
         let streamingMsgId = null;
+        let responseText = "";
 
         streamRef.current = subscribeToChatStream(
           bot.id,
           activeModel,
           (event) => {
+            if (epoch !== turnEpochRef.current) return;
             if (event.type === "turn.started") {
               streamingMsgId = event.botMsgId;
               setStreamingMessageId(event.botMsgId);
@@ -296,6 +359,8 @@ export default function ChatWindow({
                   created_at: new Date().toISOString(),
                 },
               ]);
+            } else if (event.type === "turn.progress") {
+              setTurnProgress(event.label || "Preparando tu respuesta…");
             } else if (event.type === "request.opened") {
               if (window.matchMedia("(pointer: coarse)").matches) textareaRef.current?.blur();
               setPendingApprovals((prev) => [
@@ -325,6 +390,7 @@ export default function ChatWindow({
                 );
               }
             } else if (event.type === "content.delta") {
+              responseText += event.delta;
               setMessages((prev) =>
                 prev.map((msg) =>
                   msg.id === streamingMsgId
@@ -334,7 +400,11 @@ export default function ChatWindow({
               );
             } else if (event.type === "turn.completed") {
               setIsStreaming(false);
+              sendLockedRef.current = false;
+              streamRef.current = null;
               setPendingApprovals([]);
+              setTurnProgress("");
+              setCompletedTurn({ id: streamingMsgId || `turn-${epoch}`, text: responseText, ok: event.ok !== false });
               if (event.ok === false)
                 setMessages((prev) =>
                   prev.map((msg) =>
@@ -344,20 +414,37 @@ export default function ChatWindow({
             }
           },
           () => {
+            if (epoch !== turnEpochRef.current) return;
+            sendLockedRef.current = false;
             setIsStreaming(false);
             setPendingApprovals([]);
-            setNotice("La conexión se interrumpió. Si ya autorizaste un envío, comprueba WhatsApp antes de repetirlo.");
+            setNotice("La conexión se interrumpió. Si pediste un envío, comprueba WhatsApp antes de repetirlo.");
+            setStreamError("La conexión se interrumpió. Comprueba el chat y WhatsApp antes de repetirlo.");
           },
+          { responseMode },
         );
       }
+      return true;
     } catch (err) {
+      if (epoch !== turnEpochRef.current) return false;
+      sendLockedRef.current = false;
       setNotice(
         err.message || "No se pudo enviar el mensaje. Inténtalo de nuevo.",
       );
       setIsStreaming(false);
       setPendingApprovals([]);
+      setStreamError(err.message || "No se pudo enviar el mensaje.");
+      return false;
     }
   };
+
+  const handleVoiceActivity = useCallback((activity) => {
+    setVoiceActivity(activity);
+    if (activity.active) {
+      recognitionRef.current?.abort();
+      setIsListening(false);
+    }
+  }, []);
 
   const handleVoiceToggle = () => {
     if (
@@ -395,10 +482,14 @@ export default function ChatWindow({
   };
 
   function stopResponse() {
+    turnEpochRef.current += 1;
+    sendLockedRef.current = false;
     streamRef.current?.();
     streamRef.current = null;
     setIsStreaming(false);
     setPendingApprovals([]);
+    setTurnProgress("");
+    setStreamError("Respuesta detenida. Si pediste un envío, comprueba WhatsApp antes de repetirlo.");
   }
   const suggestions = [
     "Ayúdame a organizar una idea",
@@ -413,7 +504,7 @@ export default function ChatWindow({
     expired: "Expirado",
   };
   return (
-    <div className="chat-workspace">
+    <div className="chat-workspace" data-voice-active={voiceActivity.active || undefined}>
       <header className="chat-agent-header">
         <div className="chat-agent-identity">
           <MascotAvatar
@@ -442,7 +533,13 @@ export default function ChatWindow({
           </button>
         </div>
       </header>
-      <div className="chat-thread">
+      <div className="chat-thread" ref={threadRef} onScroll={() => {
+        const node = threadRef.current;
+        if (!node) return;
+        const nearBottom = node.scrollHeight - node.scrollTop - node.clientHeight < 80;
+        nearBottomRef.current = nearBottom;
+        setShowJumpToLatest(!nearBottom);
+      }}>
         <div className="chat-thread-inner">
           {historyLoading ? (
             <p role="status" className="muted">
@@ -473,6 +570,14 @@ export default function ChatWindow({
               <div className="thread-date">
                 {formatHeaderDate(activeMessages)}
               </div>
+              {activeMessages.map((msg) => (
+                <MessageItem
+                  key={msg.id}
+                  message={msg}
+                  bot={bot}
+                  activity={isStreaming && msg.id === streamingMessageId ? mascotActivity : "idle"}
+                />
+              ))}
               {toolEvents.map((event) => (
                 <details key={event.id} className="tool-event">
                   <summary>
@@ -494,25 +599,20 @@ export default function ChatWindow({
                   )}
                 </details>
               ))}
-              {activeMessages.map((msg) => (
-                <MessageItem
-                  key={msg.id}
-                  message={msg}
-                  bot={bot}
-                  activity={
-                    isStreaming && msg.id === streamingMessageId
-                      ? mascotActivity
-                      : "idle"
-                  }
-                />
-              ))}
             </>
           )}
           <div ref={messagesEndRef} />
         </div>
       </div>
-      <div className="composer-area">
+      <div className="composer-area" data-pending-approval={pendingApprovals.length > 0 || undefined}>
         <div className="composer-inner">
+          {showJumpToLatest && <button type="button" className="chat-jump-latest" onClick={scrollToBottom}><FiArrowDown />Ir al último mensaje</button>}
+          {isStreaming && (
+            <div className={`chat-turn-status ${pendingApprovals.length ? "awaiting-approval" : ""}`} role="status">
+              <span>{pendingApprovals.length ? "Revisa la tarjeta y pulsa Autorizar para continuar" : whatsappSending ? "Enviando a WhatsApp…" : turnProgress || activityLabel || "Preparando tu respuesta…"}</span>
+              <small>{pendingApprovals.length ? "Esperando tu decisión" : `${elapsedSeconds}s`}</small>
+            </div>
+          )}
           {pendingApprovals.length > 0 && (
             <div className="chat-action-reviews" aria-label="Acciones pendientes de autorización">
               {pendingApprovals.map(approval => (
@@ -577,12 +677,14 @@ export default function ChatWindow({
             />
             <div className="composer-tools">
               <div className="composer-tools-left">
+                <HandsFreeVoice botId={bot?.id} botName={botTitle} disabled={!bot || historyLoading} onSubmit={(text) => handleSendMessage(null, text)} busy={isStreaming} approvalPending={pendingApprovals.length > 0} completedTurn={completedTurn} streamError={streamError} onActivityChange={handleVoiceActivity} />
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
                   className="icon-button"
                   aria-label="Adjuntar imagen"
                   title="Adjuntar imagen"
+                    disabled={!bot || historyLoading || isStreaming}
                 >
                   <FiImage />
                 </button>
@@ -595,6 +697,7 @@ export default function ChatWindow({
                       isListening ? "Detener dictado" : "Dictar mensaje"
                     }
                     title="Dictar mensaje"
+                    disabled={isStreaming || voiceActivity.active || !bot || historyLoading}
                   >
                     {isListening ? <FiMicOff /> : <FiMic />}
                   </button>

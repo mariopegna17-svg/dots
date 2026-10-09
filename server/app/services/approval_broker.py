@@ -79,6 +79,20 @@ class ApprovalBroker:
                 "created_at": _now(),
             })
             return "expired"
+        except asyncio.CancelledError:
+            # Closing the chat must not leave an actionable approval behind.
+            if not pending.future.done():
+                pending.future.set_result("expired")
+                storage_service.update_approval(request_id, {
+                    "status": "expired",
+                    "resolved_at": _now(),
+                })
+                storage_service.add_audit_event({
+                    "event": "approval.cancelled",
+                    "request_id": request_id,
+                    "created_at": _now(),
+                })
+            raise
         finally:
             self.pending.pop(request_id, None)
 
@@ -97,6 +111,16 @@ class ApprovalBroker:
             "request_id": request_id,
             "created_at": _now(),
         })
+        return True
+
+    def cancel(self, request_id: str) -> bool:
+        pending = self.pending.pop(request_id, None)
+        if not pending:
+            return False
+        if not pending.future.done():
+            pending.future.set_result("expired")
+        storage_service.update_approval(request_id, {"status": "expired", "resolved_at": _now()})
+        storage_service.add_audit_event({"event": "approval.cancelled", "request_id": request_id, "created_at": _now()})
         return True
 
 

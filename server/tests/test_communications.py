@@ -26,6 +26,7 @@ class CommunicationTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.storage = StorageService(Path(self.directory.name))
+        self.storage.save_settings({'whatsapp_send_mode': 'review'})
         self.service = CommunicationService(self.storage)
         self.bot_id = self.storage.get_bots()[0]['id']
         self.config = dict(communications_enabled=True, twilio_account_sid='AC' + 'a' * 32, twilio_auth_token='test-twilio-secret', owner_phone_number='+34612345678', twilio_voice_number='+12025550123', twilio_whatsapp_number='+14155238886', communication_bot_id=self.bot_id, communication_public_url='https://dots.example')
@@ -183,6 +184,35 @@ class CommunicationTests(unittest.IsolatedAsyncioTestCase):
                 with self.assertRaises(ActionGatewayError):
                     await gateway.execute(request)
                 self.assertEqual(self.post.await_count, count + 1)
+
+    async def test_automatic_whatsapp_does_not_auto_authorize_calls_and_sends_only_to_owner(self):
+        self.storage.save_settings({'whatsapp_send_mode': 'automatic'})
+        broker = ApprovalBroker()
+        gateway = ActionGateway(approvals=broker, audit=self.storage)
+        with patch('app.services.communication_actions.communication_service', self.service), patch('app.services.approval_broker.storage_service', self.storage):
+            for channel in ('voice', 'whatsapp'):
+                gateway.register_action(action_gateway.definitions['communication.' + channel], execute)
+            call, call_review = gateway.open(self.bot_id, self.bot_id, communication_invocation('call_owner', self.bot_id, 'Llamada'))
+            self.assertIsNotNone(call_review)
+            self.assertTrue(call.requires_approval)
+            gateway.cancel_pending(call)
+            request, review = gateway.open(self.bot_id, self.bot_id, communication_invocation('whatsapp_owner', self.bot_id, '2+2=4'))
+            self.assertIsNone(review)
+            self.assertFalse(request.requires_approval)
+            self.assertEqual(await gateway.wait_for_decision(request), 'allow')
+            result = await gateway.execute(request)
+        self.assertEqual(result.status, 'completed')
+        self.assertEqual(self.post.await_count, 1)
+        self.assertEqual(self.post.call_args.args[1]['To'], 'whatsapp:' + self.config['owner_phone_number'])
+
+    async def test_changed_twilio_account_or_owner_snapshot_blocks_dispatch_even_in_automatic_mode(self):
+        self.storage.save_settings({'whatsapp_send_mode': 'automatic'})
+        with patch('app.services.communication_actions.communication_service', self.service):
+            invocation = communication_invocation('whatsapp_owner', self.bot_id, '2+2=4')
+            self.storage.save_settings({'owner_phone_number': '+34611111111'})
+            with self.assertRaisesRegex(CommunicationError, 'han cambiado'):
+                await execute(invocation)
+        self.post.assert_not_awaited()
 
     async def test_phone_tools_are_hidden_when_disabled_and_never_run_in_background(self):
         with patch('app.services.agent_service.communication_service', self.service), patch('app.services.agent_service.storage_service', self.storage):

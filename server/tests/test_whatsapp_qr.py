@@ -25,6 +25,7 @@ class WhatsAppQRTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.storage = StorageService(Path(self.directory.name))
+        self.storage.save_settings({'whatsapp_send_mode': 'review'})
         self.communications = CommunicationService(self.storage)
         self.service = WhatsAppQRService(self.storage, self.communications)
         self.service.available = True
@@ -263,7 +264,7 @@ class WhatsAppQRTests(unittest.IsolatedAsyncioTestCase):
                 if event['type'] == 'request.opened':
                     self.assertIn('2+2=4', event['summary'])
                     broker.resolve(event['requestId'], 'allow')
-        self.assertEqual(len(captured), 3)
+        self.assertEqual(len(captured), 2)
         self.assertTrue(events[-1]['ok'])
         self.assertEqual(len([call for call in self.bridge.await_args_list if call.args[:2] == ('POST', '/send-owner')]), 1)
 

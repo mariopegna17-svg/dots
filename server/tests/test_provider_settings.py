@@ -36,12 +36,16 @@ class ProviderSettingsApiTests(unittest.IsolatedAsyncioTestCase):
             "model_api_headers": {"x-custom-auth": "test-header-secret"},
             "model_ids": [" custom-model ", "custom-model", "second-model"],
             "default_model": " custom-model ",
+            "model_response_mode": "reasoned",
+            "whatsapp_send_mode": "review",
         })
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(data["model_api_base_url"], "https://custom.example/v1")
         self.assertEqual(data["model_ids"], ["custom-model", "second-model"])
         self.assertEqual(data["default_model"], "custom-model")
+        self.assertEqual(data["model_response_mode"], "reasoned")
+        self.assertEqual(data["whatsapp_send_mode"], "review")
         self.assertEqual(data["model_api_key"], "")
         self.assertEqual(data["model_api_headers"], {})
         self.assertTrue(data["model_api_headers_configured"])
@@ -51,6 +55,8 @@ class ProviderSettingsApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(reopened["model_api_key"], "test-private-key")
         self.assertEqual(reopened["model_api_headers"], {"x-custom-auth": "test-header-secret"})
         self.assertEqual(reopened["model_api_wire_api"], "responses")
+        self.assertEqual(reopened["model_response_mode"], "reasoned")
+        self.assertEqual(reopened["whatsapp_send_mode"], "review")
 
     async def test_remove_headers_is_explicit_and_does_not_clear_api_key(self):
         self.storage.save_settings({"model_api_key": "test-key", "model_api_headers": {"x-old": "old-value"}})
@@ -85,6 +91,8 @@ class ProviderSettingsApiTests(unittest.IsolatedAsyncioTestCase):
             {"model_api_headers": {"x-test": "value\r\ninjected: yes"}},
             {"model_api_headers": {"X-Test": "one", "x-test": "two"}},
             {"model_api_wire_api": "unsupported"},
+            {"model_response_mode": "unsupported"},
+            {"whatsapp_send_mode": "unsupported"},
             {"default_model": "  "},
         ]:
             with self.subTest(fields=fields):

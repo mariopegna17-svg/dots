@@ -21,6 +21,7 @@ import CreateDotDialog from "./CreateDotDialog";
 import ContactPanel from "./ContactPanel";
 import TeamPanel from "./TeamPanel";
 import useLiquidGlass from "../lib/useLiquidGlass";
+import useAppViewport from "../lib/useAppViewport";
 import { applyAppearance } from "../lib/appearance";
 import {
   fetchBots,
@@ -43,6 +44,7 @@ const tabNames = {
   team: "Equipo de Dots",
 };
 export default function Dashboard({ onLogout }) {
+  useAppViewport();
   const glassRef = useLiquidGlass();
   const [bots, setBots] = useState([]);
   const [models, setModels] = useState([]);
