@@ -20,7 +20,7 @@ from app.services.whatsapp_qr_service import WhatsAppQRService, WhatsAppQRSettin
 
 
 class CommunicationProfileTests(unittest.IsolatedAsyncioTestCase):
-    async def provider_request(self, *, profile='default', model='nvidia/nemotron-3-super-120b-a12b', base='https://integrate.api.nvidia.com/v1', wire='chat_completions'):
+    async def provider_request(self, *, profile='default', model='nvidia/nemotron-3-super-120b-a12b', base='https://integrate.api.nvidia.com/v1', wire='chat_completions', tools=None, tool_choice='auto'):
         captured = []
         def transport(request):
             captured.append(json.loads(request.content))
@@ -32,7 +32,7 @@ class CommunicationProfileTests(unittest.IsolatedAsyncioTestCase):
         client = httpx.AsyncClient(transport=httpx.MockTransport(transport))
         config = {'model_api_key': 'fixture-private-key', 'model_api_base_url': base, 'model_api_wire_api': wire}
         with patch('app.services.provider_service.storage_service.get_settings', return_value=config), patch('app.services.provider_service.httpx.AsyncClient', return_value=client):
-            events = [event async for event in ModelProviderService().stream_chat_completion(model, [{'role': 'user', 'content': '2+2'}], response_profile=profile)]
+            events = [event async for event in ModelProviderService().stream_chat_completion(model, [{'role': 'user', 'content': '2+2'}], response_profile=profile, tools=tools, tool_choice=tool_choice)]
         self.assertEqual(events[0]['delta'], '4')
         self.assertTrue(events[-1]['ok'])
         self.assertEqual(captured[0]['model'], model)
@@ -60,6 +60,15 @@ class CommunicationProfileTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('max_tokens', body)
         self.assertNotIn('chat_template_kwargs', body)
 
+    async def test_required_tool_choice_reaches_provider_and_default_remains_auto(self):
+        tools = [{'type': 'function', 'function': {'name': 'fixture-action', 'parameters': {'type': 'object'}}}]
+        body = await self.provider_request(tools=tools, tool_choice='required')
+        self.assertEqual(body['tool_choice'], 'required')
+        body = await self.provider_request(tools=tools)
+        self.assertEqual(body['tool_choice'], 'auto')
+        body = await self.provider_request(tool_choice='required')
+        self.assertNotIn('tool_choice', body)
+
 
 class WhatsAppTurnLatencyTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
@@ -86,10 +95,15 @@ class WhatsAppTurnLatencyTests(unittest.IsolatedAsyncioTestCase):
         self.calls = []
         self.arguments = {'message': '2+2=4', 'final_action': True}
         self.follow_up = None
+        self.batched = False
         async def provider(**kwargs):
             self.calls.append(kwargs)
             if len(self.calls) == 1:
-                yield {'type': 'tool.call', 'calls': [{'id': 'fixture-tool-call', 'type': 'function', 'function': {'name': 'whatsapp_owner', 'arguments': json.dumps(self.arguments)}}]}
+                calls = [{'id': 'fixture-tool-call', 'type': 'function', 'function': {'name': 'whatsapp_owner', 'arguments': json.dumps(self.arguments)}}]
+                if self.batched:
+                    calls.insert(0, {'id': 'fixture-status', 'type': 'function', 'function': {'name': 'communication_status', 'arguments': '{}'}})
+                    calls.append({'id': 'fixture-remember', 'type': 'function', 'function': {'name': 'remember', 'arguments': json.dumps({'text': 'No debe ejecutarse después del rechazo.'})}})
+                yield {'type': 'tool.call', 'calls': calls}
             else:
                 self.assertIsNotNone(self.follow_up, 'A second inference request delayed a finished WhatsApp action')
                 yield {'type': 'content.delta', 'delta': self.follow_up}
@@ -128,6 +142,7 @@ class WhatsAppTurnLatencyTests(unittest.IsolatedAsyncioTestCase):
         events = await self.turn()
         self.assertEqual(len(self.calls), 1)
         self.assertEqual(self.calls[0]['response_profile'], 'communication')
+        self.assertEqual(self.calls[0]['tool_choice'], 'required')
         self.assertEqual(len(self.sends()), 1)
         self.assertEqual(events[-1], {'type': 'turn.completed', 'ok': True})
         self.assertIn('aceptado', events[-2]['delta'])
@@ -166,6 +181,30 @@ class WhatsAppTurnLatencyTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(events[-1]['ok'])
         self.assertTrue(any(event['type'] == 'tool.failed' for event in events))
 
+    async def test_batched_whatsapp_denial_ends_before_more_tools_or_inference(self):
+        self.batched = True
+        self.arguments.pop('final_action')
+        events = await self.turn(decision='deny')
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(len(self.sends()), 0)
+        self.assertIn('rechazado', events[-2]['delta'])
+        self.assertFalse(any(event.get('tool') == 'remember' for event in events))
+        self.assertEqual(self.broker.pending, {})
+
+    async def test_batched_whatsapp_expiry_does_not_ask_model_to_explain_old_history(self):
+        self.batched = True
+        self.arguments['final_action'] = False
+        with patch('app.services.approval_broker.settings.APPROVAL_TIMEOUT_SECONDS', 0.01):
+            events = await self.turn(decision=None)
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(len(self.sends()), 0)
+        self.assertIn('caducó', events[-2]['delta'])
+        self.assertIn('este chat', events[-2]['delta'])
+        self.assertNotIn('Llamadas y WhatsApp', events[-2]['delta'])
+        self.assertNotIn('No se concedió permiso', events[-2]['delta'])
+        self.assertFalse(any(event.get('tool') == 'remember' for event in events))
+        self.assertEqual(self.broker.pending, {})
+
     async def test_non_final_send_can_continue_to_answer_the_rest_of_the_request(self):
         self.arguments['final_action'] = False
         self.follow_up = 'Ahora continúo con el resto de tu petición.'
@@ -173,6 +212,82 @@ class WhatsAppTurnLatencyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.calls), 2)
         self.assertEqual(len(self.sends()), 1)
         self.assertEqual(events[-2]['delta'], self.follow_up)
+        self.assertEqual(self.calls[0]['tool_choice'], 'required')
+        self.assertNotIn('tool_choice', self.calls[1])
+
+    async def test_false_approval_instructions_cannot_replace_a_real_whatsapp_proposal(self):
+        async def provider(**kwargs):
+            self.assertEqual(kwargs['tool_choice'], 'required')
+            yield {'type': 'content.delta', 'delta': 'Error: No se concedió permiso; la acción no se ejecutó. Ve a Llamadas y WhatsApp. Hay una ventana pendiente; recarga para autorizar.'}
+            yield {'type': 'turn.completed', 'ok': True}
+        with patch('app.services.agent_service.provider_service.stream_chat_completion', provider):
+            events = await self.turn()
+        text = ''.join(event.get('delta', '') for event in events)
+        self.assertNotIn('Llamadas y WhatsApp', text)
+        self.assertNotIn('recarga', text)
+        self.assertNotIn('No se concedió permiso', text)
+        self.assertIn('No hay una autorización pendiente', text)
+        self.assertEqual(len(self.sends()), 0)
+        self.assertEqual(self.broker.pending, {})
+        self.assertFalse(events[-1]['ok'])
+
+    async def test_provider_failure_is_preserved_when_a_real_proposal_was_required(self):
+        async def provider(**kwargs):
+            yield {'type': 'content.delta', 'delta': 'Inference HTTP 401. Check credentials.'}
+            yield {'type': 'turn.completed', 'ok': False}
+        with patch('app.services.agent_service.provider_service.stream_chat_completion', provider):
+            events = await self.turn()
+        self.assertIn('HTTP 401', events[-2]['delta'])
+        self.assertEqual(len(self.sends()), 0)
+        self.assertFalse(events[-1]['ok'])
+
+    async def test_status_questions_negation_and_quotes_do_not_require_a_send_proposal(self):
+        captured = []
+        async def provider(**kwargs):
+            captured.append(kwargs)
+            yield {'type': 'content.delta', 'delta': 'Una respuesta informativa.'}
+            yield {'type': 'turn.completed', 'ok': True}
+        with patch('app.services.agent_service.provider_service.stream_chat_completion', provider):
+            for text in ('¿Está conectado WhatsApp?', 'No me envíes nada por WhatsApp.', 'Repite «envíame por WhatsApp».', 'Si te digo envíame por WhatsApp, ¿qué ocurre?', 'Envíame por Gmail los datos de WhatsApp.', 'Envíame por Gmail, no por WhatsApp.'):
+                events = await self.turn(text=text)
+                self.assertNotIn('tool_choice', captured[-1])
+                self.assertTrue(events[-1]['ok'])
+        self.assertEqual(len(self.sends()), 0)
+
+    async def test_unavailable_qr_and_background_do_not_require_an_owner_send_proposal(self):
+        captured = []
+        async def provider(**kwargs):
+            captured.append(kwargs)
+            yield {'type': 'content.delta', 'delta': 'No se ha propuesto un envío.'}
+            yield {'type': 'turn.completed', 'ok': True}
+        with patch('app.services.agent_service.provider_service.stream_chat_completion', provider):
+            with patch('app.services.agent_service.communication_capabilities', new=AsyncMock(return_value={'voice': {'ready': False}, 'whatsapp': {'ready': False}})):
+                await self.turn()
+            events = [event async for event in run_agent(self.bot_id, 'fixture-model', [{'role': 'user', 'content': 'Envíame por WhatsApp cuánto es 2+2.'}], '', background=True)]
+        self.assertEqual(len(captured), 2)
+        for kwargs in captured:
+            self.assertNotIn('tool_choice', kwargs)
+            self.assertNotIn('whatsapp_owner', [tool['function']['name'] for tool in kwargs.get('tools', [])])
+        self.assertTrue(events[-1]['ok'])
+        self.assertEqual(len(self.sends()), 0)
+
+    async def test_required_proposal_allows_reads_first_and_releases_choice_after_approval(self):
+        async def provider(**kwargs):
+            self.calls.append(kwargs)
+            if len(self.calls) < 3:
+                name = 'communication_status' if len(self.calls) == 1 else 'whatsapp_owner'
+                args = {} if name == 'communication_status' else {'message': '2+2=4', 'final_action': False}
+                yield {'type': 'content.delta', 'delta': 'Texto preliminar que no representa una aprobación.'}
+                yield {'type': 'tool.call', 'calls': [{'id': f'fixture-{len(self.calls)}', 'type': 'function', 'function': {'name': name, 'arguments': json.dumps(args)}}]}
+            else:
+                yield {'type': 'content.delta', 'delta': 'WhatsApp aceptó el envío.'}
+                yield {'type': 'turn.completed', 'ok': True}
+        with patch('app.services.agent_service.provider_service.stream_chat_completion', provider):
+            events = await self.turn()
+        self.assertEqual([call.get('tool_choice', 'auto') for call in self.calls], ['required', 'required', 'auto'])
+        self.assertEqual(len(self.sends()), 1)
+        self.assertEqual(sum(event['type'] == 'request.opened' for event in events), 1)
+        self.assertNotIn('Texto preliminar', ''.join(event.get('delta', '') for event in events))
 
     async def test_incoming_whatsapp_answers_use_short_communication_profile(self):
         captured = []

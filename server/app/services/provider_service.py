@@ -17,6 +17,7 @@ class ModelProviderService:
         tools: List[Dict[str, Any]] | None = None,
         *,
         response_profile: str = "default",
+        tool_choice: str = "auto",
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
         Submit chat requests to the configured inference endpoint.
@@ -45,7 +46,7 @@ class ModelProviderService:
         if app_settings.get("model_api_wire_api") == "chat_completions":
             async for event in self._stream_chat_completions(
                 base_url, api_key, model, messages, system_prompt,
-                app_settings.get("model_api_headers") or {}, tools, response_profile,
+                app_settings.get("model_api_headers") or {}, tools, response_profile, tool_choice,
             ):
                 yield event
             return
@@ -273,7 +274,7 @@ class ModelProviderService:
             yield {"type": "turn.completed", "ok": False}
 
 
-    async def _stream_chat_completions(self, base_url, api_key, model, messages, system_prompt, custom_headers, tools=None, response_profile="default"):
+    async def _stream_chat_completions(self, base_url, api_key, model, messages, system_prompt, custom_headers, tools=None, response_profile="default", tool_choice="auto"):
         """NVIDIA NIM / OpenAI-compatible SSE, including fragmented tool calls."""
         history = []
         if system_prompt:
@@ -292,7 +293,7 @@ class ModelProviderService:
             # Keep the selected model and ordinary analysis requests unchanged.
             body["chat_template_kwargs"] = {"enable_thinking": False}
         if tools:
-            body.update(tools=tools, tool_choice="auto")
+            body.update(tools=tools, tool_choice=tool_choice)
         headers = {**custom_headers, "Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
         calls = {}
         finish_reason = None
