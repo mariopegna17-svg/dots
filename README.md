@@ -77,7 +77,7 @@ Comprueba también `/api/v1/health`, el formulario de acceso, guardar y borrar u
 
 ## Servicios opcionales y límites
 
-La búsqueda utiliza `api.you.com/mcp` mediante el perfil gratuito sin clave. `YDC_API_KEY` permite usar el servicio autenticado; disponibilidad y límites dependen de You.com. Los [conectores guiados](CONNECTORS.md) usan Composio: guarda su clave desde la interfaz y autoriza cada cuenta. `COMPOSIO_API_KEY` permite configurar esa clave por variables. Ninguna cuenta externa está conectada automáticamente. Su catálogo no significa que todas las acciones de cada aplicación estén implementadas.
+La búsqueda utiliza `api.you.com/mcp` mediante el perfil gratuito sin clave, tanto en el chat web como en WhatsApp. `YDC_API_KEY` permite usar el servicio autenticado; disponibilidad y límites dependen de You.com. [WhatsApp por QR](COMMUNICATIONS.md#fotos-notas-de-voz-y-búsquedas) entiende fotos y notas de voz con visión y Whisper alojados por NVIDIA, reutilizando tu clave. La instalación incluye `ffmpeg` para leer los audios. Los [conectores guiados](CONNECTORS.md) usan Composio: guarda su clave desde la interfaz y autoriza cada cuenta. `COMPOSIO_API_KEY` permite configurar esa clave por variables. Ninguna cuenta externa está conectada automáticamente. Su catálogo no significa que todas las acciones de cada aplicación estén implementadas.
 
 No incluye clientes nativos, Slack/Teams como canales de conversación, 4000 integraciones, acceso al ordenador personal ni la memoria de ChatGPT. El ordenador usa un contexto de navegador efímero por contenedor; no hereda tus sesiones personales. Docker aporta separación y límites de recursos, pero esta versión no es un servicio multiusuario ni una solución de aislamiento para páginas hostiles.
 

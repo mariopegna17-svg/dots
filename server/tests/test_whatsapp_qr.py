@@ -96,7 +96,7 @@ class WhatsAppQRTests(unittest.IsolatedAsyncioTestCase):
             await self.service.handle(self.event)
             await self.service.handle(self.event)
         self.assertEqual(len(captured), 1)
-        self.assertNotIn('tools', captured[0])
+        self.assertEqual([tool['function']['name'] for tool in captured[0]['tools']], ['search_web'])
         self.assertIn('le gusta la música', captured[0]['system_prompt'])
         replies = [call for call in self.bridge.await_args_list if call.args[:2] == ('POST', '/reply')]
         self.assertEqual(len(replies), 1)

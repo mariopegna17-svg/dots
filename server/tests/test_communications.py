@@ -113,13 +113,13 @@ class CommunicationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.captured, [])
         self.assertEqual(self.post.await_count, 0)
 
-    async def test_signed_inbound_reply_is_deduplicated_and_has_no_tools(self):
+    async def test_signed_inbound_reply_is_deduplicated_and_only_has_web_search(self):
         path = '/api/v1/communications/webhooks/whatsapp'
         form = self.form(MessageSid='SM'+'c'*32, Body='Hola')
         for _ in range(2):
             self.assertEqual((await self.webhook(path, form)).status_code, 200)
         self.assertEqual(len(self.captured), 1)
-        self.assertNotIn('tools', self.captured[0])
+        self.assertEqual([tool['function']['name'] for tool in self.captured[0]['tools']], ['search_web'])
         self.assertEqual(self.post.await_count, 1)
         self.assertEqual(self.post.call_args.args[1]['Body'], 'Respuesta real de prueba.')
         reopened = CommunicationService(StorageService(Path(self.directory.name)))

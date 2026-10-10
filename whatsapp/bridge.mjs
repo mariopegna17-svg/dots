@@ -1,15 +1,20 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import makeWASocket, { Browsers, DisconnectReason, jidNormalizedUser, normalizeMessageContent } from '@whiskeysockets/baileys';
+import { downloadMediaContent } from './media-download.mjs';
 import pino from 'pino';
 import QRCode from 'qrcode';
 
 const phoneJid = phone => phone.replace(/^\+/, '') + '@s.whatsapp.net';
 const direct = jid => /@(?:s\.whatsapp\.net|lid)$/.test(jid || '');
+const mediaLimits = { image: 6 * 1024 * 1024, audio: 8 * 1024 * 1024 };
+const mediaMimes = { image: ['image/jpeg', 'image/png', 'image/webp'], audio: ['audio/ogg', 'audio/mpeg', 'audio/mp4', 'audio/aac', 'audio/wav', 'audio/x-wav', 'audio/webm'] };
 
 export class Bridge {
-  constructor(store, socketFactory = makeWASocket) {
+  constructor(store, socketFactory = makeWASocket, mediaDownloader = downloadMediaContent) {
     this.store = store;
     this.socketFactory = socketFactory;
+    this.mediaDownloader = mediaDownloader;
+    this.accepting = Promise.resolve();
     this.scope = { mode: 'self', owner_phone_number: '' };
     this.state = 'disconnected';
     this.enabled = false;
@@ -35,7 +40,7 @@ export class Bridge {
     }
     if (JSON.stringify(scope) !== JSON.stringify(this.scope)) {
       this.generation = randomUUID();
-      this.store.data.events = [];
+      this.clearEvents();
       this.store.save();
     }
     this.scope = scope;
@@ -131,7 +136,7 @@ export class Bridge {
     this.account = '';
     this.accountLid = '';
     this.generation = randomUUID();
-    this.store.data.events = [];
+    this.clearEvents();
     if (logout) this.store.reset();
     else this.store.save();
     return this.status();
@@ -158,29 +163,100 @@ export class Bridge {
     return !key.fromMe && pn === phoneJid(this.scope.owner_phone_number) && pn !== this.account;
   }
 
-  async accept(socket, event) {
+  accept(socket, event) {
+    // Serialize upserts: a duplicate arriving during a download cannot enqueue
+    // another response or multiply attachment memory use.
+    const pending = this.accepting.then(() => this.acceptMessages(socket, event));
+    this.accepting = pending.catch(() => {});
+    return pending;
+  }
+
+  async downloadMedia(message, kind, mime) {
+    if (!mediaMimes[kind].includes(mime)) throw new Error('Formato no compatible. Envía una foto JPG/PNG o una nota de voz de WhatsApp.');
+    if (Number(message.fileLength) > mediaLimits[kind]) throw new Error('El archivo es demasiado grande. Envía una foto de hasta 6 MB o un audio de hasta 8 MB.');
+    if (kind === 'audio' && Number(message.seconds) > 120) throw new Error('El audio es demasiado largo. Envía notas de voz de hasta dos minutos.');
+    // A message's media URL is data, not permission to fetch arbitrary hosts.
+    // Prefer the authenticated WhatsApp media path; prohibit cross-host redirects.
+    let host = 'mmg.whatsapp.net';
+    if (message.url) {
+      const url = new URL(message.url);
+      if (url.protocol !== 'https:' || !url.hostname.endsWith('.whatsapp.net') || url.username || url.password || (url.port && url.port !== '443')) throw new Error('Invalid media host');
+      host = url.hostname;
+    }
+    if (message.directPath && (typeof message.directPath !== 'string' || !message.directPath.startsWith('/') || message.directPath.startsWith('//'))) throw new Error('Invalid media path');
+    const controller = new AbortController();
+    let stream;
+    const timer = setTimeout(() => { controller.abort(); stream?.destroy(new Error('download timed out')); }, 15000);
+    try {
+      stream = await this.mediaDownloader(message, kind, { host, options: { signal: controller.signal, redirect: 'error' } });
+      const chunks = [];
+      let size = 0;
+      for await (const chunk of stream) {
+        size += chunk.length;
+        if (size > mediaLimits[kind]) throw new Error('El archivo es demasiado grande. Envía una foto de hasta 6 MB o un audio de hasta 8 MB.');
+        chunks.push(chunk);
+      }
+      if (!size) throw new Error('No se pudo descargar el archivo. Vuelve a enviarlo.');
+      return Buffer.concat(chunks, size);
+    } finally { clearTimeout(timer); stream?.destroy(); }
+  }
+
+  async acceptMessages(socket, event) {
     // notify only: history sync and reconnect backfills must not trigger replies.
     if (this.socket !== socket || this.state !== 'connected' || !this.enabled || event?.type !== 'notify') return;
     for (const message of Array.isArray(event.messages) ? event.messages : []) {
       const id = message?.key?.id;
-      if (typeof id !== 'string' || !id || this.store.data.seen.includes(id) || this.store.data.outgoing.includes(id)) continue;
+      if (typeof id !== 'string' || !id || id.length > 256 || this.store.data.seen.includes(id) || this.store.data.outgoing.includes(id)) continue;
       const generation = this.generation;
       if (!(await this.permittedPeer(socket, message.key))) continue;
       if (this.socket !== socket || generation !== this.generation || !this.enabled) return;
       let body;
       try { body = normalizeMessageContent(message.message); } catch { continue; }
-      const rawText = body?.conversation || body?.extendedTextMessage?.text;
+      const kind = body?.imageMessage ? 'image' : body?.audioMessage ? 'audio' : null;
+      const media = kind && body[kind + 'Message'];
+      const rawText = body?.conversation || body?.extendedTextMessage?.text || media?.caption;
       const text = typeof rawText === 'string' ? rawText.trim() : '';
-      if (!text || text.length > 4000 || this.store.data.events.length >= 50) continue;
+      if ((!text && !kind) || text.length > 4000 || this.store.data.events.length >= 50) continue;
+      const queued = { id, peer: message.key.remoteJid, text, generation };
+      if (kind) {
+        const mime = (media.mimetype || '').split(';', 1)[0].trim().toLowerCase();
+        let bytes;
+        try {
+          if (this.store.data.events.reduce((sum, item) => sum + (item.media?.size || 0), 0) + mediaLimits[kind] > 24 * 1024 * 1024) {
+            throw new Error('Hay varios archivos pendientes. Espera la respuesta y vuelve a enviarlo.');
+          }
+          bytes = await this.downloadMedia(media, kind, mime);
+        } catch (error) {
+          const safe = ['Formato no compatible.', 'El archivo es demasiado grande.', 'El audio es demasiado largo.', 'Hay varios archivos pendientes.', 'No se pudo descargar el archivo.'];
+          queued.media_error = safe.some(prefix => error.message?.startsWith(prefix)) ? error.message : 'No se pudo descargar el archivo. Vuelve a enviarlo.';
+        }
+        if (this.socket !== socket || generation !== this.generation || !this.enabled) return;
+        if (bytes) {
+          this.store.putMedia(id, bytes);
+          queued.media = { kind, mime, size: bytes.length };
+        }
+      }
       this.store.data.seen = [...this.store.data.seen, id].slice(-1000);
-      this.store.data.events.push({ id, peer: message.key.remoteJid, text, generation });
+      this.store.data.events.push(queued);
       this.store.save();
     }
   }
 
   events() { return this.store.data.events.slice(0, 1); }
 
+  clearEvents() {
+    for (const event of this.store.data.events) this.store.removeMedia(event.id);
+    this.store.data.events = [];
+  }
+
+  media(id) {
+    const event = this.store.data.events.find(item => item.id === id);
+    if (!event?.media || event.generation !== this.generation || !this.enabled || this.state !== 'connected') throw new Error('Archivo no disponible.');
+    return { bytes: this.store.readMedia(id), mime: event.media.mime };
+  }
+
   ack(id) {
+    this.store.removeMedia(id);
     this.store.data.events = this.store.data.events.filter(event => event.id !== id);
     this.store.save();
   }

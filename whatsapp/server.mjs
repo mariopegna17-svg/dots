@@ -38,6 +38,13 @@ const server = createServer(async (request, response) => {
       }
     }
     const data = body ? JSON.parse(body) : {};
+    if (request.method === 'GET' && request.url.startsWith('/media/')) {
+      const { bytes, mime } = bridge.media(decodeURIComponent(request.url.slice(7)));
+      response.setHeader('Content-Type', mime);
+      response.setHeader('Content-Length', bytes.length);
+      response.writeHead(200).end(bytes);
+      return;
+    }
     let result;
     const route = request.method + ' ' + request.url;
     if (route === 'GET /status') result = bridge.status();

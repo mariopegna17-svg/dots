@@ -495,7 +495,7 @@ class WhatsAppTurnLatencyTests(unittest.IsolatedAsyncioTestCase):
             reply = await self.communications.answer(self.bot_id, '2+2', 'fixture-incoming')
         self.assertEqual(reply, '2+2=4')
         self.assertEqual(captured[0]['response_profile'], 'communication')
-        self.assertNotIn('tools', captured[0])
+        self.assertEqual([tool['function']['name'] for tool in captured[0]['tools']], ['search_web'])
 
 
 class RecentInferenceHistoryTests(unittest.TestCase):

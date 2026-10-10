@@ -1,4 +1,4 @@
-"""Private loopback bridge for personal WhatsApp text conversations."""
+"""Private loopback bridge for personal WhatsApp conversations and attachments."""
 import asyncio
 import contextlib
 import hashlib
@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import secrets
 import shutil
+from urllib.parse import quote
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -16,6 +17,7 @@ from typing import Literal
 from app.schemas.communications import CommunicationSettings, CommunicationMessage
 from app.services.communication_service import communication_service, CommunicationError
 from app.services.storage_service import storage_service
+from app.services.whatsapp_media import WhatsAppMediaService, AUDIO_LIMIT
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -58,6 +60,7 @@ class WhatsAppQRService:
     def __init__(self, storage=storage_service, communications=communication_service):
         self.storage = storage
         self.communications = communications
+        self.media = WhatsAppMediaService(storage)
         self.process = None
         self.task = None
         self.client = None
@@ -193,20 +196,53 @@ class WhatsAppQRService:
             await self.request("POST", "/ack", {"id": event["id"]})
             return
         try:
-            self.communications.claim(event_id, "whatsapp_in", {"bot_id": config["bot_id"], "message": event["text"], "provider": "qr"})
+            self.communications.claim(event_id, "whatsapp_in", {"bot_id": config["bot_id"], "message": event.get("text") or ("[Foto]" if event.get("media", {}).get("kind") == "image" else "[Audio]"), "provider": "qr"})
         except CommunicationError:
             await self.request("POST", "/ack", {"id": event["id"]})
             return
+        reply_attempted = False
         try:
-            peer_hash = hashlib.sha256(event["peer"].encode()).hexdigest()[:16]
-            reply = await self.communications.answer(config["bot_id"], event["text"], "whatsapp-qr-" + config["bot_id"] + "-" + peer_hash)
+            if event.get("media_error"):
+                raise CommunicationError(event["media_error"])
+            text = event["text"]
+            if event.get("media"):
+                data = await self.download_media(event["id"])
+                text = await self.media.understand(event["media"], data, text)
+                self.communications.finish(event_id, "pending", message=text)
             if config != self.config():
                 raise CommunicationError("La conexión o el Dot han cambiado. Escribe de nuevo en WhatsApp.")
+            peer_hash = hashlib.sha256(event["peer"].encode()).hexdigest()[:16]
+            options = {"search_request": event["text"]} if event.get("media", {}).get("kind") == "image" else {}
+            reply = await self.communications.answer(config["bot_id"], text, "whatsapp-qr-" + config["bot_id"] + "-" + peer_hash, **options)
+            if config != self.config():
+                raise CommunicationError("La conexión o el Dot han cambiado. Escribe de nuevo en WhatsApp.")
+            reply_attempted = True
             result = await self.request("POST", "/reply", {"id": event["id"], "text": reply})
             self.communications.finish(event_id, "sent", reply=reply, provider_sid=result["id"])
         except Exception as exc:
-            self.communications.finish(event_id, "failed", error=str(exc) if isinstance(exc, CommunicationError) else "La IA no pudo responder. Comprueba NVIDIA y el modelo en Ajustes.")
+            error = str(exc) if isinstance(exc, CommunicationError) else "La IA no pudo responder. Comprueba NVIDIA y el modelo en Ajustes."
+            self.communications.finish(event_id, "failed", error=error)
+            if (event.get("media") or event.get("media_error")) and not reply_attempted and config == self.config():
+                with contextlib.suppress(CommunicationError):
+                    await self.request("POST", "/reply", {"id": event["id"], "text": error[:1500]})
         await self.request("POST", "/ack", {"id": event["id"]})
+
+    async def download_media(self, event_id):
+        if not self.client or not self.available:
+            raise CommunicationError("WhatsApp está desconectado. Vuelve a enviar el archivo cuando se recupere.")
+        try:
+            async with self.client.stream("GET", "/media/" + quote(event_id, safe=""), timeout=10) as response:
+                response.raise_for_status()
+                chunks = []
+                size = 0
+                async for chunk in response.aiter_bytes():
+                    size += len(chunk)
+                    if size > AUDIO_LIMIT:
+                        raise CommunicationError("El archivo supera el límite. Vuelve a enviarlo más pequeño.")
+                    chunks.append(chunk)
+                return b"".join(chunks)
+        except httpx.HTTPError:
+            raise CommunicationError("El archivo ya no está disponible. Vuelve a enviarlo por WhatsApp.") from None
 
     def record_exit(self):
         self.available = False

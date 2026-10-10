@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { AuthStore } from '../auth-store.mjs';
+import { Readable } from 'node:stream';
 import { Bridge } from '../bridge.mjs';
 
 const own = '34612345678@s.whatsapp.net';
@@ -35,6 +36,120 @@ function setup(t) {
   const receive = async (id, peer, { fromMe = true, type = 'notify', text = 'Hola', alt } = {}) => bridge.accept(bridge.socket, { type, messages: [{ key: { id, remoteJid: peer, fromMe, remoteJidAlt: alt }, message: { conversation: text } }] });
   return { store, bridge, sends, sockets, open, receive, directory };
 }
+
+const attachment = (id, kind, peer = own, overrides = {}) => ({ type: 'notify', messages: [{
+  key: { id, remoteJid: peer, fromMe: true },
+  message: { [kind + 'Message']: { mimetype: kind === 'image' ? 'image/jpeg' : 'audio/ogg; codecs=opus', fileLength: 8, seconds: 2, ...overrides } },
+}] });
+
+test('owner photos and voice notes are encrypted, queued once and erased after acknowledgment', async t => {
+  const { bridge, store, open, directory } = setup(t);
+  await open();
+  const bytes = Buffer.from('private-media-bytes');
+  let downloads = 0;
+  bridge.mediaDownloader = async () => { downloads++; return Readable.from([bytes]); };
+  await bridge.accept(bridge.socket, attachment('photo', 'image', own, { caption: '¿Qué pone aquí?' }));
+  assert.equal(bridge.events()[0].text, '¿Qué pone aquí?');
+  assert.equal(bridge.events()[0].media.kind, 'image');
+  assert.deepEqual(bridge.media('photo').bytes, bytes);
+  const encrypted = join(directory, 'media', store.mediaName('photo'));
+  assert.equal(readFileSync(encrypted).includes(bytes), false);
+  assert.equal(statSync(encrypted).mode & 0o777, 0o600);
+  assert.equal(readFileSync(store.file).includes(bytes), false);
+  assert.deepEqual(new AuthStore(directory).readMedia('photo'), bytes);
+  await Promise.all([bridge.accept(bridge.socket, attachment('voice', 'audio')), bridge.accept(bridge.socket, attachment('voice', 'audio'))]);
+  assert.equal(downloads, 2);
+  bridge.ack('photo');
+  assert.throws(() => readFileSync(encrypted));
+  assert.equal(bridge.events()[0].media.kind, 'audio');
+  assert.equal(bridge.events()[0].media.mime, 'audio/ogg');
+  bridge.ack('voice');
+  assert.deepEqual(bridge.events(), []);
+});
+
+test('attachments from other chats, groups, history and bot echoes never get downloaded', async t => {
+  const { bridge, open, store } = setup(t);
+  await open();
+  let downloads = 0;
+  bridge.mediaDownloader = async () => { downloads++; return Readable.from([Buffer.from('safe')]); };
+  for (const peer of [other, '123@g.us', 'status@broadcast']) await bridge.accept(bridge.socket, attachment('blocked-' + peer, 'image', peer));
+  await bridge.accept(bridge.socket, { ...attachment('old-photo', 'image'), type: 'append' });
+  store.data.outgoing.push('echo-photo');
+  await bridge.accept(bridge.socket, attachment('echo-photo', 'image'));
+  assert.equal(downloads, 0);
+  assert.deepEqual(bridge.events(), []);
+  assert.equal(bridge.state, 'connected');
+});
+
+test('oversize, long, corrupt and unsupported media produce one helpful event and keep WhatsApp connected', async t => {
+  const { bridge, open, receive } = setup(t);
+  await open();
+  let downloads = 0;
+  bridge.mediaDownloader = async () => { downloads++; throw new Error('credential-secret must never be exposed'); };
+  for (const [id, kind, fields, error] of [
+    ['large', 'image', { fileLength: 7 * 1024 * 1024 }, 'demasiado grande'],
+    ['long', 'audio', { seconds: 121 }, 'demasiado largo'],
+    ['format', 'image', { mimetype: 'text/html' }, 'Formato'],
+    ['broken', 'audio', {}, 'descargar'],
+  ]) {
+    await bridge.accept(bridge.socket, attachment(id, kind, own, fields));
+    assert.match(bridge.events()[0].media_error, new RegExp(error));
+    assert.doesNotMatch(bridge.events()[0].media_error, /secret/);
+    await bridge.accept(bridge.socket, attachment(id, kind, own, fields));
+    assert.equal(bridge.store.data.events.length, 1);
+    bridge.ack(id);
+  }
+  assert.equal(downloads, 1);
+  assert.equal(bridge.state, 'connected');
+  await receive('next-text', own);
+  assert.equal(bridge.events()[0].text, 'Hola');
+});
+
+test('the actual stream size is bounded even if WhatsApp metadata understates it', async t => {
+  const { bridge, open } = setup(t);
+  await open();
+  bridge.mediaDownloader = async () => Readable.from([Buffer.alloc(4 * 1024 * 1024), Buffer.alloc(4 * 1024 * 1024)]);
+  await bridge.accept(bridge.socket, attachment('oversize-stream', 'image'));
+  assert.match(bridge.events()[0].media_error, /demasiado grande/);
+  assert.equal(bridge.events()[0].media, undefined);
+});
+
+test('disconnect during media download never queues or stores the old attachment', async t => {
+  const { bridge, open, store } = setup(t);
+  await open();
+  bridge.mediaDownloader = async () => {
+    await bridge.disconnect();
+    return Readable.from([Buffer.from('discard')]);
+  };
+  await bridge.accept(bridge.socket, attachment('late', 'image'));
+  assert.deepEqual(bridge.events(), []);
+  assert.throws(() => store.readMedia('late'));
+});
+
+test('media URLs cannot fetch private addresses or follow redirects', async t => {
+  const { bridge, open } = setup(t);
+  await open();
+  let downloads = 0;
+  bridge.mediaDownloader = async (message, kind, options) => {
+    downloads++;
+    assert.equal(options.options.redirect, 'error');
+    assert.equal(options.host, 'mmg.whatsapp.net');
+    return Readable.from([Buffer.from('safe')]);
+  };
+  for (const [id, fields] of [
+    ['private', { url: 'http://127.0.0.1:8000/admin' }],
+    ['foreign', { url: 'https://example.com/file' }],
+    ['credentials', { url: 'https://user:password@mmg.whatsapp.net/file' }],
+    ['path', { directPath: '//private/file' }],
+  ]) {
+    await bridge.accept(bridge.socket, attachment(id, 'image', own, fields));
+    assert.match(bridge.events()[0].media_error, /descargar/);
+    bridge.ack(id);
+  }
+  assert.equal(downloads, 0);
+  await bridge.accept(bridge.socket, attachment('valid', 'image', own, { url: 'https://mmg.whatsapp.net/file', directPath: '/v/t62/file' }));
+  assert.equal(downloads, 1);
+});
 
 test('encrypted credentials and Signal buffers survive restart; corrupt state fails closed', async t => {
   const { store, directory } = setup(t);

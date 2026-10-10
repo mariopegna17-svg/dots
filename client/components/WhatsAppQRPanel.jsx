@@ -65,7 +65,7 @@ export default function WhatsAppQRPanel({ bots, onStatus }) {
     <section className="whatsapp-qr-panel">
       <div className="whatsapp-qr-heading">
         <div className="whatsapp-qr-icon"><FiMessageSquare /></div>
-        <div><h2>Tu Dot en WhatsApp</h2><p>Vincula con un QR y escríbele desde el móvil.</p></div>
+        <div><h2>Tu Dot en WhatsApp</h2><p>Mensajes, fotos, notas de voz y búsquedas en Internet.</p></div>
         <span className={`whatsapp-state ${connected ? "is-connected" : ""}`} role="status">
           {connected ? <FiCheck /> : waiting ? <FiRefreshCw className="animate-spin" /> : null}
           {states[status?.state] || "Comprobando…"}
@@ -113,12 +113,13 @@ export default function WhatsAppQRPanel({ bots, onStatus }) {
           </> : connected ? <div className="whatsapp-connected">
             <FiCheck /><strong>Listo para conversar</strong>
             {status.account_phone && <span>{status.account_phone}</span>}
-            <p>{status.mode === "self" ? "Abre «Mensaje a ti mismo» y escribe Hola." : "Escribe a este número desde tu WhatsApp habitual."}</p>
+            <p>{status.mode === "self" ? "Abre «Mensaje a ti mismo»." : "Abre el chat con este número."} Envía texto, una foto o una nota de voz. También puedes pedir «Busca en Internet…».</p>
             {status.mode === "separate" && status.account_phone && <a className="compact-button" href={`https://wa.me/${status.account_phone.replace(/\D/g, "")}`} target="_blank" rel="noopener noreferrer">Abrir conversación</a>}
           </div> : <div className="whatsapp-qr-placeholder"><FiMessageSquare /><p>{waiting ? "Esperando a WhatsApp…" : "Tu QR aparecerá aquí"}</p></div>}
         </div>
       </div>
-      {!connected && <ol className="whatsapp-qr-steps"><li><strong>Conecta</strong><span>Elige un Dot y pulsa Conectar WhatsApp.</span></li><li><strong>Escanea</strong><span>WhatsApp → Ajustes o menú ⋮ → Dispositivos vinculados → Vincular un dispositivo.</span></li><li><strong>Conversa</strong><span>Envía un mensaje de texto y tu Dot responderá en el mismo chat.</span></li></ol>}
+      {!connected && <ol className="whatsapp-qr-steps"><li><strong>Conecta</strong><span>Elige un Dot y pulsa Conectar WhatsApp.</span></li><li><strong>Escanea</strong><span>WhatsApp → Ajustes o menú ⋮ → Dispositivos vinculados → Vincular un dispositivo.</span></li><li><strong>Conversa</strong><span>Envía texto, fotos o audios. Tu Dot responderá en este chat.</span></li></ol>}
+      <p className="muted">Fotos de hasta 6 MB · Notas de voz de hasta 2 minutos y 8 MB. Se procesan con tu API de NVIDIA y se responden por escrito. La búsqueda incluye fuentes.</p>
       <p className="whatsapp-qr-footnote">Sin Twilio ni coste por mensaje del conector. Usa tu API de NVIDIA. Conexión no oficial: WhatsApp puede desconectarla o bloquear la cuenta. En Render gratis, abre la web para despertar el servicio; puede pedirte otro QR tras un reinicio.</p>
     </section>
   );

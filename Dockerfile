@@ -33,14 +33,22 @@ RUN --mount=type=secret,id=proxy_ca \
     apt-get update && apt-get install -y --no-install-recommends libstdc++6 && rm -rf /var/lib/apt/lists/*
 RUN groupadd --gid 1000 dots && useradd --uid 1000 --gid dots --create-home dots
 WORKDIR /app
-COPY --from=web /usr/local/bin/node /usr/local/bin/node
-COPY --from=api /opt/venv /opt/venv
-COPY --from=whatsapp --chown=dots:dots /build/whatsapp/ ./whatsapp/
-COPY --from=web --chown=dots:dots /build/client/.next/standalone/ ./client/
-COPY --from=web --chown=dots:dots /build/client/.next/static/ ./client/.next/static/
-COPY --from=web --chown=dots:dots /build/client/public/ ./client/public/
-COPY --chown=dots:dots server/app/ ./server/app/
-COPY --chown=dots:dots scripts/production.py ./scripts/production.py
+# Assemble one runtime layer; copying the growing runtime in separate layers
+# consumes excessive space on development builders with the VFS storage driver.
+RUN --mount=type=bind,from=web,source=/usr/local/bin/node,target=/mnt/node \
+    --mount=type=bind,from=api,source=/opt/venv,target=/mnt/venv \
+    --mount=type=bind,from=whatsapp,source=/build/whatsapp,target=/mnt/whatsapp \
+    --mount=type=bind,from=web,source=/build/client,target=/mnt/client \
+    --mount=type=bind,source=server/app,target=/mnt/server-app \
+    --mount=type=bind,source=scripts/production.py,target=/mnt/production.py \
+    cp /mnt/node /usr/local/bin/node && cp -a /mnt/venv /opt/venv && \
+    mkdir -p /app/client/.next /app/server/app /app/scripts && \
+    cp -a /mnt/whatsapp /app/whatsapp && \
+    cp -a /mnt/client/.next/standalone/. /app/client/ && \
+    cp -a /mnt/client/.next/static /app/client/.next/static && \
+    cp -a /mnt/client/public /app/client/public && \
+    cp -a /mnt/server-app/. /app/server/app/ && \
+    cp /mnt/production.py /app/scripts/production.py && chown -R dots:dots /app
 ENV PATH=/opt/venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
     NEXT_TELEMETRY_DISABLED=1 NODE_ENV=production DATA_DIR=/home/dots/data \
     COMPUTER_PROVIDER=remote PORT=10000
