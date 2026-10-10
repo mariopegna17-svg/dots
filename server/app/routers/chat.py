@@ -6,7 +6,7 @@ from collections import OrderedDict
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from app.config import settings
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, HTTPException
 from sse_starlette.sse import EventSourceResponse
 from typing import List, Optional, Literal
 
@@ -56,11 +56,18 @@ async def send_message(req: TurnRequest):
     return {"status": "ok", "message": user_msg}
 
 @router.get("/stream/{thread_id}")
-async def stream_turn(thread_id: str, model: Optional[str] = Query(None), response_mode: Literal["text", "voice"] = Query("text")):
+async def stream_turn(thread_id: str, model: Optional[str] = Query(None), response_mode: Literal["text", "voice"] = Query("text"), message_id: Optional[str] = None):
     """
     SSE stream endpoint broadcasting real-time tokens & tool events for a given thread.
     """
     history = storage_service.get_messages(thread_id=thread_id)
+    if message_id is not None:
+        requested_index = next((index for index, item in enumerate(history) if item.get("id") == message_id and item.get("sender") == "user"), None)
+        if requested_index is None:
+            raise HTTPException(status_code=404, detail="No se encuentra esa petición en este chat.")
+        # A routine or another tab may append messages between POST and SSE.
+        # Generate only for the user message the client actually submitted.
+        history = history[:requested_index + 1]
     bots = storage_service.get_bots()
     current_bot = next((b for b in bots if b["id"] == thread_id), None)
 
@@ -75,7 +82,8 @@ async def stream_turn(thread_id: str, model: Optional[str] = Query(None), respon
             formatted_history.append({
                 "role": "user" if m["sender"] == "user" else "assistant",
                 "content": m.get("text", ""),
-                "image_url": m.get("image_url")
+                "image_url": m.get("image_url"),
+                **({"id": m["id"]} if m.get("id") else {}),
             })
 
 
@@ -267,29 +275,49 @@ async def stream_turn(thread_id: str, model: Optional[str] = Query(None), respon
 
     async def event_generator():
         latest_user = next((item for item in reversed(history) if item.get("sender") == "user"), None)
-        message_id = latest_user.get("id") if latest_user else None
-        turn_key = (thread_id, message_id) if message_id else None
+        user_message_id = latest_user.get("id") if latest_user else None
+        turn_key = (thread_id, user_message_id) if user_message_id else None
         rejected = thread_id in _active_turns or (turn_key and turn_key in _finished_turns) or (latest_user and history[-1].get("sender") == "bot")
         if not rejected and turn_key:
-            rejected = not storage_service.claim_chat_turn(thread_id, message_id)
+            rejected = not storage_service.claim_chat_turn(thread_id, user_message_id)
         if rejected:
             rejected_message_id = f"msg-{uuid.uuid4().hex}"
             yield {"event": "message", "data": json.dumps({"type": "turn.started", "botMsgId": rejected_message_id, "model": selected_model})}
             yield {"event": "message", "data": json.dumps({"type": "content.delta", "botMsgId": rejected_message_id, "delta": "Esta petición ya está en curso o ha terminado. Revisa el chat; para intentarlo de nuevo, escribe otra petición. No se ha repetido ningún envío."})}
             yield {"event": "message", "data": json.dumps({"type": "turn.completed", "ok": False, "botMsgId": rejected_message_id})}
             return
-        _active_turns[thread_id] = message_id
+        _active_turns[thread_id] = user_message_id
         terminal_status = "cancelled"
         opened_requests = []
+        finished = False
+
+        def finish_turn():
+            nonlocal finished
+            if finished:
+                return
+            finished = True
+            if turn_key:
+                storage_service.finish_chat_turn(thread_id, user_message_id, terminal_status)
+                _finished_turns[turn_key] = True
+                while len(_finished_turns) > 512:
+                    _finished_turns.popitem(last=False)
+            if _active_turns.get(thread_id) == user_message_id:
+                _active_turns.pop(thread_id, None)
+
         try:
             async with aclosing(generate_events()) as stream:
                 async for event in stream:
                     data = json.loads(event["data"])
                     if data.get("type") == "turn.completed":
                         terminal_status = "failed" if data.get("ok") is False else "completed"
+                        # The UI enables the next request as soon as it sees
+                        # this event. Closing the provider generator can be slow.
+                        finish_turn()
                     if data.get("type") == "request.opened":
                         opened_requests.append(data["requestId"])
                     yield event
+                    if data.get("type") == "turn.completed":
+                        break
         except Exception:
             terminal_status = "failed"
             raise
@@ -298,11 +326,6 @@ async def stream_turn(thread_id: str, model: Optional[str] = Query(None), respon
                 pending = action_gateway.get_pending_request(request_id)
                 if pending:
                     action_gateway.cancel_pending(pending)
-            _active_turns.pop(thread_id, None)
-            if turn_key:
-                storage_service.finish_chat_turn(thread_id, message_id, terminal_status)
-                _finished_turns[turn_key] = True
-                while len(_finished_turns) > 512:
-                    _finished_turns.popitem(last=False)
+            finish_turn()
 
     return EventSourceResponse(event_generator())

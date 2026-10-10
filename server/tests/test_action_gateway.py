@@ -192,9 +192,10 @@ class ActionGatewayTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(request.tool, "workspace")
         self.assertEqual(request.action, "read")
         self.assertEqual(request.target, {"path": "notes.txt"})
-        self.assertTrue(request.requires_approval)
-        self.assertEqual(request.state, "pending_approval")
-        self.assertEqual(approval["request_id"], request.request_id)
+        self.assertFalse(request.requires_approval)
+        self.assertEqual(request.state, "approved")
+        self.assertIsNone(approval)
+        self.assertEqual(self.approvals.opened, [])
 
         self.assertEqual(await self.gateway.wait_for_decision(request), "allow")
         action_result = await self.gateway.execute(request)
@@ -213,6 +214,27 @@ class ActionGatewayTests(unittest.IsolatedAsyncioTestCase):
         )
         audit_text = json.dumps(self.audit.events)
         self.assertNotIn("private workspace content", audit_text)
+
+    async def test_workspace_listing_is_automatic_but_writing_still_requires_review(self):
+        (self.root / "notes.txt").write_text("original", encoding="utf-8")
+        request, approval = self.gateway.open("thread-test", "bot-test", parse_workspace_command("/workspace list"))
+        self.assertIsNone(approval)
+        result = await self.gateway.execute(request)
+        self.assertEqual(result.result["entries"], [{"name": "notes.txt", "kind": "file"}])
+
+        request, approval = self.gateway.open("thread-test", "bot-test", parse_workspace_command("/workspace write notes.txt\nreplacement"))
+        self.assertTrue(request.requires_approval)
+        self.assertIsNotNone(approval)
+        with self.assertRaises(ActionGatewayError):
+            await self.gateway.execute(request)
+        self.assertEqual((self.root / "notes.txt").read_text(), "original")
+
+    async def test_automatic_workspace_read_still_rejects_paths_outside_workspace(self):
+        request, approval = self.gateway.open("thread-test", "bot-test", parse_workspace_command("/workspace read ../outside.txt"))
+        self.assertIsNone(approval)
+        result = await self.gateway.execute(request)
+        self.assertEqual(result.status, "failed")
+        self.assertIn("outside", result.error)
 
     async def test_unregistered_action_is_denied_by_default(self):
         call = ActionInvocation(

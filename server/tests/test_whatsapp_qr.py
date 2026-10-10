@@ -11,7 +11,7 @@ import httpx
 
 from app.main import app
 from app.services.auth_service import auth_service
-from app.services.communication_service import CommunicationService, CommunicationError
+from app.services.communication_service import CommunicationService, CommunicationError, QR_DAILY_OUTBOUND_LIMIT, TWILIO_DAILY_OUTBOUND_LIMIT
 from app.services.storage_service import StorageService
 from app.services.whatsapp_qr_service import WhatsAppQRService, WhatsAppQRSettings
 from app.schemas.communications import CommunicationMessage
@@ -215,13 +215,85 @@ class WhatsAppQRTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(sends), 1)
         self.assertEqual(self.communications.recent()[0]['status'], 'failed')
 
-    async def test_qr_web_send_shares_daily_limit_with_twilio_and_never_changes_provider(self):
+    async def test_new_explicit_request_after_uncertain_result_is_allowed_but_old_id_stays_blocked(self):
         await self.outbound_ready()
-        for index in range(10):
+        original = self.bridge.side_effect
+        def failure(method, path, data=None):
+            if path == '/send-owner':
+                raise CommunicationError('No se pudo confirmar el envío; revisa WhatsApp.')
+            return original(method, path, data)
+        with patch('app.services.communication_actions.whatsapp_qr_service', self.service):
+            first = await prepare_communication_invocation('whatsapp_owner', self.bot_id, '2+2=4')
+            self.bridge.side_effect = failure
+            with self.assertRaises(CommunicationError):
+                await execute(first)
+            self.bridge.side_effect = original
+            with self.assertRaisesRegex(CommunicationError, 'envío anterior'):
+                await execute(first)
+            second = await prepare_communication_invocation('whatsapp_owner', self.bot_id, '2+2=4')
+            result = await execute(second)
+            await execute(second)
+        self.assertEqual(result['status'], 'sent')
+        sends = [call for call in self.bridge.await_args_list if call.args[:2] == ('POST', '/send-owner')]
+        self.assertEqual(len(sends), 2)
+        self.assertEqual(len({call.args[2]['id'] for call in sends}), 2)
+
+    async def test_qr_new_owner_requests_have_their_own_budget_after_twilio_is_exhausted(self):
+        await self.outbound_ready()
+        for index in range(TWILIO_DAILY_OUTBOUND_LIMIT):
             self.communications.claim('out-' + str(index), 'voice_out', {'message': 'fixture'}, outbound=True)
         with patch('app.services.communication_actions.whatsapp_qr_service', self.service):
+            for _ in range(3):
+                invocation = await prepare_communication_invocation('whatsapp_owner', self.bot_id, '2+2=4')
+                result = await execute(invocation)
+                self.assertEqual(result['provider'], 'qr')
+                self.assertEqual(result['status'], 'sent')
+        sends = [call for call in self.bridge.await_args_list if call.args[:2] == ('POST', '/send-owner')]
+        self.assertEqual(len(sends), 3)
+        self.assertEqual(len({call.args[2]['id'] for call in sends}), 3)
+        state = await self.service.owner_status()
+        self.assertEqual(state['daily_outbound_limit'], QR_DAILY_OUTBOUND_LIMIT)
+        self.assertEqual(state['daily_outbound_remaining'], QR_DAILY_OUTBOUND_LIMIT - 3)
+        self.assertTrue(state['ready'])
+        with self.assertRaisesRegex(CommunicationError, '10 llamadas y envíos de Twilio'):
+            self.communications.claim('another-twilio', 'voice_out', {'message': 'fixture'}, outbound=True)
+
+    async def test_new_identical_owner_request_is_distinct_from_a_replay_even_after_reload(self):
+        await self.outbound_ready()
+        with patch('app.services.communication_actions.whatsapp_qr_service', self.service):
+            first = await prepare_communication_invocation('whatsapp_owner', self.bot_id, '2+2=4')
+            await execute(first)
+            reopened_storage = StorageService(Path(self.directory.name))
+            self.service.storage = reopened_storage
+            self.service.communications = CommunicationService(reopened_storage)
+            await execute(first)
+            second = await prepare_communication_invocation('whatsapp_owner', self.bot_id, '2+2=4')
+            await execute(second)
+            await execute(second)
+        self.assertNotEqual(first.arguments['event_id'], second.arguments['event_id'])
+        sends = [call for call in self.bridge.await_args_list if call.args[:2] == ('POST', '/send-owner')]
+        self.assertEqual(len(sends), 2)
+        self.assertEqual([call.args[2]['text'] for call in sends], ['2+2=4', '2+2=4'])
+
+    async def test_qr_exhaustion_reports_its_own_quota_without_disabling_the_connection(self):
+        await self.outbound_ready()
+        for index in range(QR_DAILY_OUTBOUND_LIMIT):
+            self.communications.claim('qr-budget-' + str(index), 'whatsapp_out', {'provider': 'qr', 'message': 'fixture'}, outbound=True)
+        with patch('app.services.communication_actions.whatsapp_qr_service', self.service):
             invocation = await prepare_communication_invocation('whatsapp_owner', self.bot_id, '2+2=4')
-            with self.assertRaisesRegex(CommunicationError, 'límite diario'): await execute(invocation)
+            with self.assertRaisesRegex(CommunicationError, '200 envíos de WhatsApp por QR'):
+                await execute(invocation)
+        state = await self.service.owner_status()
+        self.assertTrue(state['ready'])
+        self.assertEqual(state['state'], 'connected')
+        self.assertEqual(state['daily_outbound_remaining'], 0)
+        self.assertEqual(self.communications.outbound_budget()['daily_outbound_remaining'], TWILIO_DAILY_OUTBOUND_LIMIT)
+        for index in range(TWILIO_DAILY_OUTBOUND_LIMIT):
+            # A mislabeled payload cannot give chargeable calls the QR quota.
+            self.communications.claim('voice-after-qr-' + str(index), 'voice_out', {'provider': 'qr', 'message': 'fixture'}, outbound=True)
+        with self.assertRaisesRegex(CommunicationError, '10 llamadas y envíos de Twilio'):
+            self.communications.claim('voice-after-qr-over-budget', 'voice_out', {'provider': 'qr', 'message': 'fixture'}, outbound=True)
+        self.assertEqual(self.communications.outbound_budget()['daily_outbound_remaining'], 0)
         self.assertFalse(any(call.args[:2] == ('POST', '/send-owner') for call in self.bridge.await_args_list))
 
     async def test_model_with_only_gmail_in_composio_can_discover_and_send_via_connected_qr(self):

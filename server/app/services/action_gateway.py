@@ -130,6 +130,7 @@ class ActionGateway:
                 action="list",
                 intent="Inspect entries in the local workspace.",
                 risk="read",
+                requires_approval=False,
             ),
             "workspace.read": ActionDefinition(
                 name="workspace.read",
@@ -137,6 +138,7 @@ class ActionGateway:
                 action="read",
                 intent="Read a file from the local workspace.",
                 risk="read",
+                requires_approval=False,
             ),
             "workspace.write": ActionDefinition(
                 name="workspace.write",

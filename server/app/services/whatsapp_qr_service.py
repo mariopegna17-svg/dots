@@ -100,7 +100,7 @@ class WhatsAppQRService:
             state = {"state": "unavailable", "error": str(exc), "qr": None, "account_phone": ""}
         if config["enabled"] and self.error and not state.get("error"):
             state["error"] = self.error
-        return {**state, **config, "available": self.available, "inference_ready": bool(self.storage.get_settings().get("model_api_key"))}
+        return {**state, **config, "available": self.available, "inference_ready": bool(self.storage.get_settings().get("model_api_key")), **self.communications.outbound_budget(qr=True)}
 
     async def owner_status(self):
         config = self.config()
@@ -120,7 +120,8 @@ class WhatsAppQRService:
                 error = "WhatsApp por QR está " + state.get("state", "desconectado") + ". Abre Llamadas y WhatsApp y espera a que indique conectado."
         return {"enabled": True, "ready": ready, "state": state.get("state", "unavailable"), "error": error,
                 "mode": config["mode"], "owner_phone_number": number, "account_phone": account,
-                "connection_id": state.get("connection_id", "")}
+                "connection_id": state.get("connection_id", ""),
+                **{key: state[key] for key in ("daily_outbound_limit", "daily_outbound_used", "daily_outbound_remaining")}}
 
     async def send_owner(self, data: CommunicationMessage, expected, event_id):
         record_id = "qr-out-" + event_id

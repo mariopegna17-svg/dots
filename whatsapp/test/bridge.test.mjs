@@ -155,6 +155,52 @@ test('web messages reach the self chat without an incoming event and cannot trig
   assert.equal(new AuthStore(directory).data.ownerSends[0].sent, result.id);
 });
 
+test('new explicit requests may send identical text while replaying one ID never repeats it', async t => {
+  const { bridge, open, receive, sends, store, directory } = setup(t);
+  await open();
+  const first = ownerRequest(bridge, { id: '1'.repeat(32) });
+  const firstResult = await bridge.sendOwner(first);
+  await receive(firstResult.id, own);
+  const reloaded = new AuthStore(directory);
+  assert.equal(reloaded.data.ownerSends[0].sent, firstResult.id);
+  // Simulate reloading the encrypted state without opening any real socket.
+  bridge.store = reloaded;
+  for (const id of ['2'.repeat(32), '3'.repeat(32)]) {
+    const request = ownerRequest(bridge, { id });
+    const result = await bridge.sendOwner(request);
+    assert.deepEqual(await bridge.sendOwner(request), result);
+    await receive(result.id, own);
+  }
+  assert.equal(sends.length, 3);
+  assert.equal(new Set(sends.map(item => item.options.messageId)).size, 3);
+  assert.equal(sends.every(item => item.peer === own && item.body.text === '2+2=4'), true);
+  assert.deepEqual(await bridge.sendOwner(first), firstResult);
+  assert.equal(sends.length, 3);
+  assert.equal(bridge.events().length, 0);
+  assert.equal(store.data.ownerSends.length, 1);
+});
+
+test('a failed unrelated LID or malformed event does not disable the next owner send', async t => {
+  const { bridge, open, sends } = setup(t);
+  await open();
+  await bridge.sendOwner(ownerRequest(bridge, { id: '1'.repeat(32) }));
+  bridge.socket.signalRepository.lidMapping.getPNForLID = async () => { throw new Error('Fixture private lookup failure'); };
+  bridge.socket.ev.emit('messages.upsert', { type: 'notify', messages: [
+    { key: { id: 'unrelated-lid', remoteJid: '888@lid', fromMe: false }, message: { conversation: 'Mensaje ajeno.' } },
+    null,
+    { key: { id: 'malformed-owner', remoteJid: own, fromMe: true }, message: { conversation: { invalid: true } } },
+  ] });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(bridge.state, 'connected');
+  assert.equal(bridge.error, '');
+  assert.equal(bridge.events().length, 0);
+  await bridge.sendOwner(ownerRequest(bridge, { id: '2'.repeat(32) }));
+  assert.equal(sends.length, 2);
+  assert.equal(sends.every(item => item.peer === own), true);
+  await bridge.accept(bridge.socket, { type: 'notify', messages: [{ key: { id: 'real-self-lid', remoteJid: '999@lid', fromMe: true }, message: { conversation: 'Nueva pregunta propia.' } }] });
+  assert.equal(bridge.events()[0].id, 'real-self-lid');
+});
+
 test('web messages in separate-number mode can only reach the configured owner', async t => {
   const { bridge, open, sends } = setup(t);
   await open({ mode: 'separate', owner_phone_number: '+34699999999' });
@@ -188,6 +234,22 @@ test('uncertain and concurrent web requests never dispatch the same message twic
   assert.equal(results.every(item => item.status === 'rejected'), true);
   await assert.rejects(bridge.sendOwner(data));
   assert.equal(count, 1);
+});
+
+test('an explicitly new request is allowed after an uncertain earlier request remains blocked', async t => {
+  const { bridge, open } = setup(t);
+  await open();
+  let count = 0;
+  bridge.socket.sendMessage = async () => { count++; throw new Error('Fixture uncertain result'); };
+  const first = ownerRequest(bridge, { id: '1'.repeat(32) });
+  await assert.rejects(bridge.sendOwner(first));
+  bridge.socket.sendMessage = async (_peer, _body, options) => { count++; return { key: { id: options.messageId } }; };
+  await assert.rejects(bridge.sendOwner(first));
+  const second = ownerRequest(bridge, { id: '2'.repeat(32) });
+  const result = await bridge.sendOwner(second);
+  assert.equal(result.status, 'sent');
+  assert.deepEqual(await bridge.sendOwner(second), result);
+  assert.equal(count, 2);
 });
 
 test('invalid messages and unconfirmed results are never reported as successful', async t => {

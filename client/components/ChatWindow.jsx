@@ -421,7 +421,7 @@ export default function ChatWindow({
             setNotice("La conexión se interrumpió. Si pediste un envío, comprueba WhatsApp antes de repetirlo.");
             setStreamError("La conexión se interrumpió. Comprueba el chat y WhatsApp antes de repetirlo.");
           },
-          { responseMode },
+          { responseMode, messageId: sent.message?.id },
         );
       }
       return true;

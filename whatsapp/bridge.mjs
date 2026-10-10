@@ -138,13 +138,21 @@ export class Bridge {
   }
 
   async permittedPeer(socket, key) {
-    if (!direct(key.remoteJid)) return false;
+    if (typeof key?.remoteJid !== 'string' || !direct(key.remoteJid)) return false;
     const peer = jidNormalizedUser(key.remoteJid);
+    // Our own LID is already authenticated by this socket. An unrelated
+    // contact lookup must not disable an otherwise healthy connection.
+    if (this.scope.mode === 'self' && this.accountLid && peer === this.accountLid) return true;
     let pn = peer;
     if (peer.endsWith('@lid')) {
-      pn = key.remoteJidAlt?.endsWith('@s.whatsapp.net') ? jidNormalizedUser(key.remoteJidAlt) :
-        await socket.signalRepository.lidMapping.getPNForLID(peer);
-      pn = pn ? jidNormalizedUser(pn) : '';
+      try {
+        pn = typeof key.remoteJidAlt === 'string' && key.remoteJidAlt.endsWith('@s.whatsapp.net') ? jidNormalizedUser(key.remoteJidAlt) :
+          await socket.signalRepository?.lidMapping?.getPNForLID(peer);
+      } catch {
+        // Unresolved peers stay unauthorized; do not mark the socket offline.
+        return false;
+      }
+      pn = typeof pn === 'string' ? jidNormalizedUser(pn) : '';
     }
     if (this.scope.mode === 'self') return (pn && pn === this.account) || (this.accountLid && peer === this.accountLid);
     return !key.fromMe && pn === phoneJid(this.scope.owner_phone_number) && pn !== this.account;
@@ -152,15 +160,17 @@ export class Bridge {
 
   async accept(socket, event) {
     // notify only: history sync and reconnect backfills must not trigger replies.
-    if (this.socket !== socket || this.state !== 'connected' || !this.enabled || event.type !== 'notify') return;
-    for (const message of event.messages || []) {
-      const id = message.key?.id;
-      if (!id || this.store.data.seen.includes(id) || this.store.data.outgoing.includes(id)) continue;
+    if (this.socket !== socket || this.state !== 'connected' || !this.enabled || event?.type !== 'notify') return;
+    for (const message of Array.isArray(event.messages) ? event.messages : []) {
+      const id = message?.key?.id;
+      if (typeof id !== 'string' || !id || this.store.data.seen.includes(id) || this.store.data.outgoing.includes(id)) continue;
       const generation = this.generation;
       if (!(await this.permittedPeer(socket, message.key))) continue;
       if (this.socket !== socket || generation !== this.generation || !this.enabled) return;
-      const body = normalizeMessageContent(message.message);
-      const text = (body?.conversation || body?.extendedTextMessage?.text || '').trim();
+      let body;
+      try { body = normalizeMessageContent(message.message); } catch { continue; }
+      const rawText = body?.conversation || body?.extendedTextMessage?.text;
+      const text = typeof rawText === 'string' ? rawText.trim() : '';
       if (!text || text.length > 4000 || this.store.data.events.length >= 50) continue;
       this.store.data.seen = [...this.store.data.seen, id].slice(-1000);
       this.store.data.events.push({ id, peer: message.key.remoteJid, text, generation });

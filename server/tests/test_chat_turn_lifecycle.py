@@ -40,6 +40,7 @@ class ChatTurnLifecycleTests(unittest.IsolatedAsyncioTestCase):
     async def send(self, text):
         response = await self.client.post('/api/v1/chat/send', json={'thread_id': self.bot['id'], 'bot_id': self.bot['id'], 'user_text': text})
         self.assertEqual(response.status_code, 200)
+        return response.json()['message']
 
     async def finished_runner(self, **kwargs):
         self.calls.append(kwargs)
@@ -157,3 +158,84 @@ class ChatTurnLifecycleTests(unittest.IsolatedAsyncioTestCase):
         with ThreadPoolExecutor(max_workers=2) as executor:
             claims = list(executor.map(lambda storage: storage.claim_chat_turn(self.bot['id'], 'fixture-concurrent-user-message'), [self.storage, reopened]))
         self.assertEqual(sorted(claims), [False, True])
+
+    async def test_exact_user_message_runs_despite_routine_appended_before_stream(self):
+        message_id = self.initial_history[-1]['id']
+        self.storage.add_message({
+            'id': 'fixture-routine-result', 'thread_id': self.bot['id'], 'bot_id': self.bot['id'],
+            'sender': 'bot', 'text': 'Resultado de una rutina en segundo plano.',
+            'created_at': '2026-10-10T18:00:00',
+        })
+        with patch.object(chat, 'run_agent', self.finished_runner):
+            response = await self.stream_response('?message_id=' + message_id)
+        self.assertTrue(self.events(response)[-1]['ok'])
+        self.assertEqual(self.calls[0]['messages'][-1]['id'], message_id)
+        self.assertEqual(self.calls[0]['messages'][-1]['content'], 'Envíame por WhatsApp cuánto es 2+2.')
+
+    async def test_stream_uses_submitted_message_and_never_newer_tab_request(self):
+        first_id = self.initial_history[-1]['id']
+        second = await self.send('Una pregunta nueva de otra pestaña.')
+        with patch.object(chat, 'run_agent', self.finished_runner):
+            first = await self.stream_response('?message_id=' + first_id)
+            second_response = await self.stream_response('?message_id=' + second['id'])
+            repeat = await self.stream_response('?message_id=' + first_id)
+        self.assertTrue(self.events(first)[-1]['ok'])
+        self.assertTrue(self.events(second_response)[-1]['ok'])
+        self.assertFalse(self.events(repeat)[-1]['ok'])
+        self.assertEqual([call['messages'][-1]['id'] for call in self.calls], [first_id, second['id']])
+
+    async def test_nonexistent_or_assistant_message_id_does_not_start_inference(self):
+        with patch.object(chat, 'run_agent', self.finished_runner):
+            self.assertEqual((await self.stream_response('?message_id=missing')).status_code, 404)
+            await self.stream_response()
+            assistant_id = self.storage.get_messages(self.bot['id'])[-1]['id']
+            self.assertEqual((await self.stream_response('?message_id=' + assistant_id)).status_code, 404)
+        self.assertEqual(len(self.calls), 1)
+
+    async def test_identical_explicit_requests_have_independent_turns(self):
+        ids = [self.initial_history[-1]['id']]
+        with patch.object(chat, 'run_agent', self.finished_runner):
+            for attempt in range(5):
+                if attempt:
+                    message = await self.send('Envíame por WhatsApp cuánto es 2+2.')
+                    ids.append(message['id'])
+                response = await self.stream_response('?message_id=' + ids[-1])
+                self.assertTrue(self.events(response)[-1]['ok'])
+        self.assertEqual(len(set(ids)), 5)
+        self.assertEqual(len(self.calls), 5)
+
+    async def test_terminal_event_releases_turn_before_slow_provider_cleanup(self):
+        cleanup_started = asyncio.Event()
+        cleanup_release = asyncio.Event()
+
+        async def slow_cleanup_runner(**kwargs):
+            try:
+                yield {'type': 'content.delta', 'delta': 'WhatsApp ha aceptado el mensaje.'}
+                yield {'type': 'turn.completed', 'ok': True}
+            finally:
+                cleanup_started.set()
+                await cleanup_release.wait()
+
+        with patch.object(chat, 'run_agent', slow_cleanup_runner):
+            first = await chat.stream_turn(self.bot['id'], model=None, response_mode='text')
+            while True:
+                event = await first.body_iterator.__anext__()
+                if json.loads(event['data'])['type'] == 'turn.completed':
+                    break
+            self.assertNotIn(self.bot['id'], chat._active_turns)
+            self.assertEqual(self.storage.get_chat_turn(self.bot['id'], self.initial_history[-1]['id'])['status'], 'completed')
+
+            second_message = await self.send('Envíame por WhatsApp cuánto es 3+3.')
+            second = await chat.stream_turn(self.bot['id'], model=None, response_mode='text', message_id=second_message['id'])
+            event = await second.body_iterator.__anext__()
+            self.assertEqual(json.loads(event['data'])['type'], 'turn.started')
+            self.assertEqual(chat._active_turns[self.bot['id']], second_message['id'])
+
+            closing_first = asyncio.create_task(first.body_iterator.aclose())
+            await asyncio.wait_for(cleanup_started.wait(), timeout=1)
+            cleanup_release.set()
+            await asyncio.wait_for(closing_first, timeout=1)
+            # Cleanup from the earlier response cannot clear the new reservation.
+            self.assertEqual(chat._active_turns[self.bot['id']], second_message['id'])
+            await second.body_iterator.aclose()
+            self.assertNotIn(self.bot['id'], chat._active_turns)

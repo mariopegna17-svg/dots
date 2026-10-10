@@ -245,6 +245,7 @@ export async function fetchAuditEvents(limit = 100) {
 export function subscribeToChatStream(threadId, model, onEvent, onError, options = {}) {
   const query = new URLSearchParams({ model });
   if (options.responseMode === 'voice') query.set('response_mode', 'voice');
+  if (options.messageId) query.set('message_id', options.messageId);
   const url = `${API_BASE_URL}/chat/stream/${encodeURIComponent(threadId)}?${query}`;
   let eventSource = null;
   let cancelled = false;

@@ -11,6 +11,7 @@ async def communication_capabilities(twilio_status=None):
     whatsapp = {"ready": twilio["whatsapp_ready"], "provider": "twilio", "issues": twilio["setup_issues"]["whatsapp"]}
     if qr["enabled"]:
         whatsapp = {key: qr[key] for key in ("ready", "state", "error", "mode", "owner_phone_number")}
+        whatsapp.update({key: qr[key] for key in ("daily_outbound_limit", "daily_outbound_used", "daily_outbound_remaining") if key in qr})
         whatsapp["provider"] = "qr"
     return {"voice": {"ready": twilio["voice_ready"], "provider": "twilio", "issues": twilio["setup_issues"]["voice"]}, "whatsapp": whatsapp,
             "note": "WhatsApp por QR es independiente de las cuentas de Composio. Para enviar al propietario usa whatsapp_owner; la ventana de 24 horas solo se aplica a Twilio."}

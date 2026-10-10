@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   FiPhone,
   FiMessageSquare,
@@ -73,7 +73,19 @@ export default function ContactPanel({ bots, bot }) {
   const [diagnostic, setDiagnostic] = useState(null);
   const [checking, setChecking] = useState(false);
   const [historyError, setHistoryError] = useState("");
+  const [whatsappSendMode, setWhatsappSendMode] = useState("review");
+  const preparingSend = useRef(false);
+  const sending = useRef(false);
   const configLoaded = Boolean(config);
+  useEffect(() => {
+    let disposed = false;
+    agentState("settings").then((data) => {
+      if (!disposed) setWhatsappSendMode(data.whatsapp_send_mode || "automatic");
+    }).catch(() => {
+      if (!disposed) setWhatsappSendMode("review");
+    });
+    return () => { disposed = true; };
+  }, []);
   useEffect(() => {
     let disposed = false;
     Promise.all([
@@ -174,7 +186,33 @@ export default function ContactPanel({ bots, bot }) {
       setBusy(false);
     }
   }
+  async function requestSend() {
+    if (busy || preparingSend.current || sending.current) return;
+    if (channel === "voice") {
+      setConfirm(true);
+      return;
+    }
+    preparingSend.current = true;
+    setBusy(true);
+    setNotice(null);
+    try {
+      // Read again on the click so a changed preference takes effect immediately.
+      const data = await agentState("settings");
+      const mode = data.whatsapp_send_mode || "automatic";
+      setWhatsappSendMode(mode);
+      if (mode === "automatic") await send();
+      else setConfirm(true);
+    } catch {
+      setWhatsappSendMode("review");
+      setNotice({ error: true, text: "No se pudo comprobar tu preferencia de envío. No se ha enviado el mensaje; vuelve a intentarlo." });
+    } finally {
+      preparingSend.current = false;
+      setBusy(false);
+    }
+  }
   async function send() {
+    if (sending.current) return;
+    sending.current = true;
     setBusy(true);
     setNotice(null);
     try {
@@ -203,6 +241,7 @@ export default function ContactPanel({ bots, bot }) {
         );
       }
       setBusy(false);
+      sending.current = false;
     }
   }
   const ready = Boolean(
@@ -383,10 +422,10 @@ export default function ContactPanel({ bots, bot }) {
             <button
               className="primary-button"
               disabled={!ready || !message.trim() || !selectedBot || busy}
-              onClick={() => setConfirm(true)}
+              onClick={requestSend}
             >
               {channel === "voice" ? <FiPhone /> : <FiMessageSquare />}
-              {channel === "voice" ? "Llamarme" : "Revisar envío"}
+              {busy ? "Enviando…" : channel === "voice" ? "Llamarme" : whatsappSendMode === "automatic" ? "Enviar WhatsApp" : "Revisar envío"}
             </button>
             {!ready && (
               <button

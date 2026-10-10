@@ -21,6 +21,8 @@ from app.services.memory_service import memory_service
 
 WEBHOOK_ROOT = "/api/v1/communications/webhooks"
 SETTING_FIELDS = set(CommunicationSettings.model_fields) - {"twilio_auth_token_configured"}
+TWILIO_DAILY_OUTBOUND_LIMIT = 10
+QR_DAILY_OUTBOUND_LIMIT = 200
 
 
 class CommunicationError(ValueError):
@@ -141,7 +143,7 @@ class CommunicationService:
             "configured": configured,
             "setup_issues": issues,
             "whatsapp_webhook": config["communication_public_url"] + WEBHOOK_ROOT + "/whatsapp" if config["communication_public_url"] else "",
-            "daily_outbound_limit": 10,
+            "daily_outbound_limit": TWILIO_DAILY_OUTBOUND_LIMIT,
         }
 
     def public_config(self):
@@ -173,12 +175,32 @@ class CommunicationService:
             db.execute("BEGIN IMMEDIATE")
             if db.execute("SELECT 1 FROM communication_events WHERE id = ?", (event_id,)).fetchone():
                 return False
-            channels = ("voice_out", "whatsapp_out") if outbound else ("voice_turn", "whatsapp_in")
-            count = db.execute("SELECT COUNT(*) FROM communication_events WHERE owner_id = ? AND created_at >= ? AND channel IN (?, ?)", (self.storage.owner_id, now[:10], *channels)).fetchone()[0]
-            if count >= (10 if outbound else 40):
-                raise CommunicationError("Se ha alcanzado el límite diario de comunicaciones.")
+            if outbound:
+                qr = channel == "whatsapp_out" and payload.get("provider") == "qr"
+                count = self._outbound_count(db, now[:10], qr)
+                limit = QR_DAILY_OUTBOUND_LIMIT if qr else TWILIO_DAILY_OUTBOUND_LIMIT
+                if count >= limit:
+                    label = "envíos de WhatsApp por QR" if qr else "llamadas y envíos de Twilio"
+                    raise CommunicationError(f"Se ha alcanzado el límite diario de {limit} {label}. Espera a que se renueve el cupo.")
+            else:
+                count = db.execute("SELECT COUNT(*) FROM communication_events WHERE owner_id = ? AND created_at >= ? AND channel IN ('voice_turn', 'whatsapp_in')", (self.storage.owner_id, now[:10])).fetchone()[0]
+                if count >= 40:
+                    raise CommunicationError("Se ha alcanzado el límite diario de comunicaciones.")
             db.execute("INSERT INTO communication_events(id, owner_id, channel, status, created_at, payload) VALUES (?, ?, ?, 'pending', ?, ?)", (event_id, self.storage.owner_id, channel, now, json.dumps(payload)))
         return True
+
+    def _outbound_count(self, db, since, qr):
+        # QR is a different transport from chargeable Twilio communications.
+        # Count attempts, including uncertain outcomes, in the same transaction
+        # that claims a new event; replaying an ID never consumes another slot.
+        provider_filter = "channel = 'whatsapp_out' AND json_extract(payload, '$.provider') = 'qr'" if qr else "(channel = 'voice_out' OR COALESCE(json_extract(payload, '$.provider'), '') <> 'qr')"
+        return db.execute(f"SELECT COUNT(*) FROM communication_events WHERE owner_id = ? AND created_at >= ? AND channel IN ('voice_out', 'whatsapp_out') AND {provider_filter}", (self.storage.owner_id, since)).fetchone()[0]
+
+    def outbound_budget(self, *, qr=False):
+        with self.storage.database.connect() as db:
+            used = self._outbound_count(db, datetime.now(timezone.utc).isoformat()[:10], qr)
+        limit = QR_DAILY_OUTBOUND_LIMIT if qr else TWILIO_DAILY_OUTBOUND_LIMIT
+        return {"daily_outbound_limit": limit, "daily_outbound_used": used, "daily_outbound_remaining": max(0, limit - used)}
 
     def finish(self, event_id, status, **updates):
         with self.storage.database.connect() as db:
