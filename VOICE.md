@@ -1,11 +1,13 @@
 # Conversación de voz manos libres
 
-1. Abre el chat de un Dot y pulsa **Voz** junto al cuadro de escritura.
-2. Permite el micrófono cuando el navegador lo solicite.
+1. Abre el chat de un Dot y pulsa **Voz**, el botón con auriculares junto al cuadro de escritura. El icono de micrófono del cuadro sirve para dictar texto.
+2. Oirás «Hola, soy tu Dot. Ya puedes hablar conmigo». Ese saludo activa el altavoz con tu pulsación, también en Safari. Permite el micrófono cuando el navegador lo solicite.
 3. Habla y haz una pausa. El texto reconocido se envía una sola vez; el Dot prepara una respuesta breve, la lee y vuelve a escuchar.
 4. Usa **Interrumpir y hablar** para detener la lectura y hacer otra pregunta. **Volver a escribir** o la cruz cierran el micrófono y la voz.
 
 El micrófono se pausa mientras se prepara o reproduce una respuesta para evitar captar la voz del Dot. **Enviar ahora** permite confirmar la frase visible. Los mensajes antiguos del historial no se leen automáticamente. Cerrar el modo no cancela un envío que el servidor ya ha empezado; comprueba WhatsApp antes de repetir un envío cuyo resultado sea incierto.
+
+Si no oyes el saludo, sube el volumen **multimedia**, revisa si el sonido sale por auriculares Bluetooth y pulsa **Probar altavoz**. **Repetir respuesta** vuelve a leer la última respuesta sin consultar otra vez al modelo ni ejecutar de nuevo sus acciones. Si la reproducción falla, **Reintentar voz** conserva y reproduce la respuesta pendiente. La interfaz solo indica «Dot está hablando» cuando el navegador confirma el inicio del audio; si no arranca, muestra cómo recuperarlo.
 
 Los WhatsApp pedidos a tu número vinculado se envían automáticamente con la preferencia predeterminada. En Ajustes → **Envíos a mi WhatsApp** puedes desactivar **Enviar sin pedirme confirmación**. En revisión manual, y para las otras acciones que lo requieran, la voz se pausa y **Revisar en el chat** muestra la tarjeta real; hablar no pulsa sus botones.
 

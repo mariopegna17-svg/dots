@@ -2,13 +2,15 @@
 
 import { useId, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { FiHeadphones, FiMic, FiMicOff, FiX } from "react-icons/fi";
+import { FiHeadphones, FiMic, FiMicOff, FiVolume2, FiX } from "react-icons/fi";
 import useHandsFreeVoice from "../hooks/useHandsFreeVoice";
 
 const labels = {
   idle: "Modo voz",
   listening: "Te escucho",
+  starting_mic: "Abriendo el micrófono",
   thinking: "Preparando tu respuesta",
+  starting_audio: "Activando el altavoz",
   speaking: "Dot está hablando",
   approval: "Revisa la autorización en el chat",
   paused: "Voz pausada",
@@ -99,12 +101,16 @@ export default function HandsFreeVoice({ botId, botName = "Dot", disabled = fals
               reviewButton?.scrollIntoView({ behavior: "smooth", block: "nearest" });
               reviewButton?.focus({ preventScroll: true });
             }}>Revisar en el chat</button>}
-            {voice.status === "speaking" && <button type="button" className="voice-primary" onClick={voice.interrupt}><FiMic aria-hidden="true" />Interrumpir y hablar</button>}
+            {["speaking", "starting_audio"].includes(voice.status) && <button type="button" className="voice-primary" onClick={voice.interrupt}><FiMic aria-hidden="true" />Interrumpir y hablar</button>}
             {voice.status === "listening" && voice.transcript && <button type="button" className="voice-primary" onClick={voice.sendNow}>Enviar ahora</button>}
             {voice.paused && voice.supported && <button type="button" className="voice-primary" onClick={voice.resume}><FiMic aria-hidden="true" />{voice.status === "error" ? "Reintentar voz" : "Retomar voz"}</button>}
             <button type="button" className="voice-secondary" onClick={close}><FiMicOff aria-hidden="true" />Volver a escribir</button>
           </div>
-          <p className="voice-help">Habla y haz una pausa; enviaré tu frase y leeré la respuesta. Necesitas esta pantalla abierta. En iPhone, el micrófono y la voz dependen de Safari y sus permisos. El reconocimiento puede usar el servicio de voz de tu navegador.</p>
+          {voice.supported && !busy && !approvalPending && voice.status !== "thinking" && <div className="voice-speaker-actions">
+            <button type="button" className="voice-secondary" onClick={voice.testSpeaker}><FiVolume2 aria-hidden="true" />Probar altavoz</button>
+            {voice.lastReply && <button type="button" className="voice-secondary" onClick={voice.replay}><FiVolume2 aria-hidden="true" />Repetir respuesta</button>}
+          </div>}
+          <p className="voice-help">Oirás un saludo al entrar. Después, habla y haz una pausa; responderé en voz alta y volveré a escuchar. Si no me oyes, sube el volumen multimedia y pulsa «Probar altavoz». Mantén esta pantalla abierta. En iPhone utiliza Safari y permite el micrófono. El reconocimiento puede usar el servicio de voz de tu navegador.</p>
         </section>,
         document.body,
       )}

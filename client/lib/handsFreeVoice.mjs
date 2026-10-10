@@ -2,6 +2,10 @@ const RECOGNITION_WAIT_MS = 45000;
 const FINAL_PAUSE_MS = 700;
 const RESTART_PAUSE_MS = 400;
 const REPLY_WAIT_MS = 75000;
+const SPEECH_START_WAIT_MS = 8000;
+const VOICE_LOAD_WAIT_MS = 1200;
+export const VOICE_GREETING = "Hola, soy tu Dot. Ya puedes hablar conmigo.";
+const VOICE_RESUME = "Te escucho.";
 
 export function voiceText(text) {
   return String(text || "")
@@ -41,7 +45,7 @@ export function createHandsFreeVoice({ browser, onSubmit, onState }) {
   const Recognition = browser.SpeechRecognition || browser.webkitSpeechRecognition;
   const synthesis = browser.speechSynthesis;
   const supported = Boolean(typeof Recognition === "function" && synthesis && typeof browser.SpeechSynthesisUtterance === "function");
-  let state = { supported, active: false, status: "idle", transcript: "", error: "", paused: false };
+  let state = { supported, active: false, status: "idle", transcript: "", error: "", paused: false, lastReply: "" };
   let disposed = false;
   let generation = 0;
   let recognition = null;
@@ -51,6 +55,8 @@ export function createHandsFreeVoice({ browser, onSubmit, onState }) {
   let approvalPending = false;
   let lastCompletedId = null;
   let deferredSpeech = null;
+  let pendingVoiceStart = null;
+  let microphonePending = false;
   let finalTranscript = "";
   const timers = new Map();
 
@@ -91,9 +97,12 @@ export function createHandsFreeVoice({ browser, onSubmit, onState }) {
 
   function stopSpeech() {
     clearTimer("speech");
-    if (utterance) utterance.onend = utterance.onerror = null;
+    clearTimer("speech-start");
+    clearTimer("voices");
+    pendingVoiceStart = null;
+    if (utterance) utterance.onstart = utterance.onend = utterance.onerror = null;
     utterance = null;
-    if (supported) synthesis.cancel();
+    try { synthesis?.cancel(); } catch {}
   }
 
   function fail(message) {
@@ -104,7 +113,39 @@ export function createHandsFreeVoice({ browser, onSubmit, onState }) {
   }
 
   function canListen() {
-    return state.active && !state.paused && !busy && !approvalPending && !awaitingReply && !disposed;
+    return state.active && !state.paused && !busy && !approvalPending && !awaitingReply && !disposed && !microphonePending && !isOutputPending();
+  }
+
+  function isOutputPending() {
+    return state.status === "starting_audio" || state.status === "speaking";
+  }
+
+  function requestMicrophone() {
+    const devices = browser.navigator?.mediaDevices;
+    if (typeof devices?.getUserMedia !== "function") return true;
+    const currentGeneration = generation;
+    microphonePending = true;
+    const denied = (error) => {
+      if (disposed || currentGeneration !== generation || !state.active) return;
+      microphonePending = false;
+      fail(error?.name === "NotAllowedError"
+        ? "El micrófono está bloqueado. Permítelo en los ajustes de este sitio y pulsa Reintentar voz."
+        : "No se ha podido abrir el micrófono. Revisa sus permisos y si otra aplicación lo está usando.");
+    };
+    try {
+      // Ask inside the launch/resume gesture, before the spoken greeting finishes on iOS.
+      Promise.resolve(devices.getUserMedia({ audio: true })).then(stream => {
+        // Recognition owns its own capture. This permission-only stream must always be released.
+        for (const track of stream.getTracks()) track.stop();
+        if (disposed || currentGeneration !== generation || !state.active) return;
+        microphonePending = false;
+        syncStatus();
+      }).catch(denied);
+      return true;
+    } catch (error) {
+      denied(error);
+      return false;
+    }
   }
 
   async function submitTranscript() {
@@ -213,22 +254,40 @@ export function createHandsFreeVoice({ browser, onSubmit, onState }) {
     }
   }
 
-  function speak(text) {
+  function availableVoices() {
+    try { return synthesis.getVoices?.() || []; } catch { return []; }
+  }
+
+  function voicesChanged() {
+    if (!availableVoices().length || !pendingVoiceStart) return;
+    const begin = pendingVoiceStart;
+    pendingVoiceStart = null;
+    clearTimer("voices");
+    begin();
+  }
+  synthesis?.addEventListener?.("voiceschanged", voicesChanged);
+
+  function speak(text, { gesture = false } = {}) {
     stopRecognition();
     stopSpeech();
     const chunks = speechChunks(text);
     if (!chunks.length) {
+      deferredSpeech = null;
+      emit({ status: "starting_mic", transcript: "" });
       schedule("restart", listen, RESTART_PAUSE_MS);
       return;
     }
+    // Keep the response until playback finishes. Retrying sound must never resend a chat/tool request.
+    deferredSpeech = chunks.join(" ");
     const currentGeneration = generation;
-    emit({ status: "speaking", error: "" });
+    emit({ status: "starting_audio", error: "" });
     function next() {
       if (disposed || currentGeneration !== generation || !state.active || state.paused || approvalPending) return;
       const chunk = chunks.shift();
       if (!chunk) {
         utterance = null;
-        emit({ status: "listening", transcript: "" });
+        deferredSpeech = null;
+        emit({ status: "starting_mic", transcript: "" });
         // Let speaker output decay before opening the microphone again.
         schedule("restart", listen, RESTART_PAUSE_MS);
         return;
@@ -237,27 +296,59 @@ export function createHandsFreeVoice({ browser, onSubmit, onState }) {
       utterance = current;
       current.lang = "es-ES";
       current.rate = 1.08;
-      const voices = synthesis.getVoices?.() || [];
-      current.voice = voices.find(voice => voice.lang === "es-ES") || voices.find(voice => voice.lang?.startsWith("es")) || null;
+      current.volume = 1;
+      current.pitch = 1;
+      const voices = availableVoices();
+      const spanish = voices.filter(voice => /^es(?:[-_]|$)/i.test(voice.lang || ""));
+      const voice = spanish.find(voice => /^es[-_]ES$/i.test(voice.lang) && voice.localService)
+        || spanish.find(voice => /^es[-_]ES$/i.test(voice.lang))
+        || spanish.find(voice => voice.localService) || spanish[0];
+      // Safari can reject an explicitly null voice while its system voices are loading.
+      if (voice) current.voice = voice;
+      let started = false;
+      current.onstart = () => {
+        if (utterance !== current || currentGeneration !== generation) return;
+        started = true;
+        clearTimer("speech-start");
+        emit({ status: "speaking", error: "" });
+        schedule("speech", () => fail("La lectura de voz se ha detenido. Pulsa Reintentar voz para escuchar la respuesta pendiente."), Math.max(15000, chunk.split(/\s+/).length * 1000 + 4000));
+      };
       current.onend = () => {
         if (utterance !== current || currentGeneration !== generation) return;
+        clearTimer("speech-start");
         clearTimer("speech");
+        if (!started) {
+          fail("El navegador no ha iniciado el audio. Pulsa Reintentar voz para activar el altavoz y escuchar la respuesta.");
+          return;
+        }
         utterance = null;
         next();
       };
-      current.onerror = () => {
+      current.onerror = (event) => {
         if (utterance !== current || currentGeneration !== generation) return;
-        fail("No se pudo reproducir la respuesta. Puedes leerla en el chat y pulsar Reintentar voz.");
+        fail(event?.error === "not-allowed"
+          ? "El navegador bloqueó el altavoz. Pulsa Reintentar voz para activar el sonido y escuchar la respuesta."
+          : "No se pudo reproducir la respuesta. Pulsa Reintentar voz para escucharla sin volver a enviar tu petición.");
       };
       try {
+        // Arm first: some engines dispatch start/end synchronously on short utterances.
+        schedule("speech-start", () => fail("El altavoz no ha arrancado. Sube el volumen multimedia y pulsa Reintentar voz para escuchar la respuesta."), SPEECH_START_WAIT_MS);
         synthesis.resume?.();
         synthesis.speak(current);
-        schedule("speech", () => fail("La lectura de voz se ha detenido. La respuesta sigue en el chat; pulsa Reintentar voz para continuar."), Math.max(12000, chunk.split(/\s+/).length * 800));
       } catch {
         fail("Este navegador no ha podido reproducir la respuesta. Puedes leerla en el chat.");
       }
     }
-    next();
+    // The first audible greeting MUST be queued inside the button's user gesture, especially on iOS.
+    // Subsequent asynchronous replies may briefly wait for the browser's voiceschanged event.
+    if (!gesture && !availableVoices().length) {
+      pendingVoiceStart = next;
+      schedule("voices", () => {
+        const begin = pendingVoiceStart;
+        pendingVoiceStart = null;
+        begin?.();
+      }, VOICE_LOAD_WAIT_MS);
+    } else next();
   }
 
   function syncStatus() {
@@ -270,8 +361,8 @@ export function createHandsFreeVoice({ browser, onSubmit, onState }) {
     } else if (busy || awaitingReply) {
       waitForReply();
       stopRecognition();
-      if (state.status !== "speaking") emit({ status: "thinking" });
-    } else if (state.status !== "speaking" && !recognition) {
+      if (!isOutputPending()) emit({ status: "thinking" });
+    } else if (!isOutputPending() && !recognition) {
       clearTimer("reply");
       schedule("restart", listen, RESTART_PAUSE_MS);
     }
@@ -297,8 +388,9 @@ export function createHandsFreeVoice({ browser, onSubmit, onState }) {
       awaitingReply = false;
       deferredSpeech = null;
       emit({ active: true, paused: false, status: "listening", error: "", transcript: "" });
+      if (!requestMicrophone()) return;
       if (approvalPending || busy) syncStatus();
-      else listen();
+      else speak(VOICE_GREETING, { gesture: true });
     },
     stop() {
       generation += 1;
@@ -307,6 +399,7 @@ export function createHandsFreeVoice({ browser, onSubmit, onState }) {
       stopSpeech();
       awaitingReply = false;
       deferredSpeech = null;
+      microphonePending = false;
       emit({ active: false, paused: false, status: "idle", transcript: "", error: "" });
     },
     resume() {
@@ -314,15 +407,26 @@ export function createHandsFreeVoice({ browser, onSubmit, onState }) {
       stopRecognition();
       stopSpeech();
       emit({ paused: false, error: "" });
+      if (!requestMicrophone()) return;
       if (deferredSpeech && !busy && !approvalPending) {
         const text = deferredSpeech;
         deferredSpeech = null;
-        speak(text);
+        speak(text, { gesture: true });
       } else if (busy || approvalPending || awaitingReply) syncStatus();
-      else listen();
+      else speak(VOICE_RESUME, { gesture: true });
+    },
+    testSpeaker() {
+      if (disposed || !state.active || !supported || busy || approvalPending || awaitingReply || browser.document?.hidden) return;
+      emit({ paused: false, error: "" });
+      speak(VOICE_GREETING, { gesture: true });
+    },
+    replay() {
+      if (disposed || !state.active || !state.lastReply || busy || approvalPending || awaitingReply || browser.document?.hidden) return;
+      emit({ paused: false, error: "" });
+      speak(state.lastReply, { gesture: true });
     },
     interrupt() {
-      if (!state.active || state.status !== "speaking") return;
+      if (!state.active || !isOutputPending()) return;
       stopSpeech();
       deferredSpeech = null;
       emit({ status: "listening", transcript: "", paused: false });
@@ -346,8 +450,12 @@ export function createHandsFreeVoice({ browser, onSubmit, onState }) {
           if (completion.ok === false) {
             fail("No se pudo completar la respuesta. Revisa el mensaje del chat antes de volver a pedir una acción.");
           } else if (state.paused || browser.document?.hidden) {
+            emit({ lastReply: voiceText(completion.text) });
             deferredSpeech = completion.text;
-          } else if (!approvalPending) speak(completion.text);
+          } else if (!approvalPending) {
+            emit({ lastReply: voiceText(completion.text) });
+            speak(completion.text);
+          }
         }
       }
       if (next.streamError && state.active && awaitingReply && !busy && !approvalPending) {
@@ -360,6 +468,7 @@ export function createHandsFreeVoice({ browser, onSubmit, onState }) {
       this.stop();
       disposed = true;
       browser.document?.removeEventListener("visibilitychange", pauseForHiddenPage);
+      synthesis?.removeEventListener?.("voiceschanged", voicesChanged);
     },
   };
 }

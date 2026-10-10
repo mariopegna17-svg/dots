@@ -37,5 +37,7 @@ export default function useHandsFreeVoice({ botId, onSubmit, busy, approvalPendi
   const resume = useCallback(() => controllerRef.current?.resume(), []);
   const interrupt = useCallback(() => controllerRef.current?.interrupt(), []);
   const sendNow = useCallback(() => controllerRef.current?.sendNow(), []);
-  return { ...state, start, stop, resume, interrupt, sendNow };
+  const testSpeaker = useCallback(() => controllerRef.current?.testSpeaker(), []);
+  const replay = useCallback(() => controllerRef.current?.replay(), []);
+  return { ...state, start, stop, resume, interrupt, sendNow, testSpeaker, replay };
 }
