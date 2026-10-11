@@ -11,6 +11,8 @@ function fixture({ submit = async () => true, unsupported = false, autoGreeting 
   const playbacks = [];
   const voiceListeners = new Map();
   const listeners = new Map();
+  const events = new Map();
+  const saved = new Map();
   const states = [];
   const submissions = [];
   class Recognition {
@@ -26,6 +28,10 @@ function fixture({ submit = async () => true, unsupported = false, autoGreeting 
     constructor(text) { this.text = text; }
   }
   const browser = {
+    navigator: { onLine: true },
+    localStorage: { getItem: key => saved.get(key), setItem: (key, value) => saved.set(key, value) },
+    addEventListener(type, handler) { events.set(type, handler); },
+    removeEventListener(type) { events.delete(type); },
     SpeechRecognition: unsupported ? undefined : Recognition,
     SpeechSynthesisUtterance: Utterance,
     speechSynthesis: {
@@ -63,7 +69,7 @@ function fixture({ submit = async () => true, unsupported = false, autoGreeting 
   }
   function start() { controller.start(); if (autoGreeting) tick(400); }
   function setVoices(next) { voices = next; voiceListeners.get('voiceschanged')?.(); }
-  return { controller, browser, timers, recognizers, spoken, playbacks, states, submissions, listeners, voiceListeners, tick, start, setVoices };
+  return { controller, browser, timers, recognizers, spoken, playbacks, states, submissions, listeners, events, saved, voiceListeners, tick, start, setVoices };
 }
 
 const settle = () => new Promise(resolve => setImmediate(resolve));
@@ -73,7 +79,7 @@ test('speaking a final phrase sends once after pause, stops microphone, reads co
   f.start();
   const recognition = f.recognizers.at(-1);
   recognition.final('Cuánto es dos más dos');
-  f.tick(699);
+  f.tick(849);
   assert.equal(f.submissions.length, 0);
   f.tick(1);
   await settle();
@@ -136,7 +142,7 @@ test('approval pauses recognition, speaks no fabricated success and never resubm
   const f = fixture();
   f.start();
   f.recognizers.at(-1).final('Envíame cuatro por WhatsApp');
-  f.tick(700);
+  f.tick(850);
   await settle();
   f.controller.update({ busy: true, approvalPending: true });
   assert.equal(f.controller.getState().status, 'approval');
@@ -156,7 +162,7 @@ test('failed completed turn stays paused and does not imply a sent message or re
   const f = fixture();
   f.start();
   f.recognizers.at(-1).final('Envía un mensaje');
-  f.tick(700);
+  f.tick(850);
   await settle();
   f.controller.update({ busy: false, completedTurn: { id: 'bad', text: 'No se ha enviado.', ok: false } });
   assert.equal(f.controller.getState().status, 'error');
@@ -182,14 +188,19 @@ test('permission denial requires manual retry and stops listeners', () => {
   f.controller.destroy();
 });
 
-test('network recognition failure does not send an interim or repeatedly reopen microphone', () => {
+test('network recognition failure retries with bounded backoff without sending an interim', () => {
   const f = fixture();
   f.start();
   f.recognizers.at(-1).interim('Un texto parcial');
   f.recognizers.at(-1).error('network');
+  assert.equal(f.controller.getState().status, 'recovering');
+  for (const delay of [700, 1500, 3000]) {
+    f.tick(delay);
+    f.recognizers.at(-1).error('network');
+  }
   f.tick(120000);
   assert.equal(f.submissions.length, 0);
-  assert.equal(f.recognizers.length, 1);
+  assert.equal(f.recognizers.length, 4);
   assert.match(f.controller.getState().error, /conexión/);
   f.controller.destroy();
 });
@@ -221,7 +232,7 @@ test('closing cancels all timers and stale callbacks, preserving the existing ch
   assert.equal(f.controller.getState().active, false);
   f.start();
   f.recognizers.at(-1).final('Mensaje nuevo');
-  f.tick(700);
+  f.tick(850);
   await settle();
   f.controller.destroy();
   f.controller.update({ busy: false, completedTurn: { id: 'late', text: 'No lo leas', ok: true } });
@@ -234,7 +245,7 @@ test('interrupting playback cancels its old callback before opening microphone',
   const f = fixture();
   f.start();
   f.recognizers.at(-1).final('Dime algo');
-  f.tick(700);
+  f.tick(850);
   await settle();
   f.controller.update({ completedTurn: { id: 'read', text: 'Una respuesta de prueba.', ok: true } });
   const staleEnd = f.spoken.at(-1).onend;
@@ -246,11 +257,11 @@ test('interrupting playback cancels its old callback before opening microphone',
   f.controller.destroy();
 });
 
-test('changing tabs stops microphone and requires a gesture to return, with no speech in background', async () => {
+test('changing tabs stops microphone and resumes the actual pending reply on return, with no background speech', async () => {
   const f = fixture();
   f.start();
   f.recognizers.at(-1).final('Consulta de voz');
-  f.tick(700);
+  f.tick(850);
   await settle();
   f.browser.document.hidden = true;
   f.listeners.get('visibilitychange')();
@@ -258,11 +269,9 @@ test('changing tabs stops microphone and requires a gesture to return, with no s
   assert.equal(f.spoken.length, 0);
   f.browser.document.hidden = false;
   f.listeners.get('visibilitychange')();
-  f.tick(10000);
-  assert.equal(f.spoken.length, 0);
-  assert.equal(f.controller.getState().status, 'paused');
-  f.controller.resume();
   assert.equal(f.spoken.length, 1);
+  assert.equal(f.spoken[0].text, 'Respuesta guardada.');
+  assert.equal(f.submissions.length, 1);
   f.controller.destroy();
 });
 
@@ -271,7 +280,7 @@ test('rejected message and disconnected stream fail without automatic request re
     const f = fixture({ submit: async () => rejected ? false : true });
     f.start();
     f.recognizers.at(-1).final('No repitas esta acción');
-    f.tick(700);
+    f.tick(850);
     await settle();
     if (!rejected) f.controller.update({ busy: false, streamError: 'connection lost' });
     assert.equal(f.controller.getState().status, 'error');
@@ -285,10 +294,10 @@ test('a hung voice output has a bounded timeout and leaves the readable reply in
   const f = fixture();
   f.start();
   f.recognizers.at(-1).final('Prueba');
-  f.tick(700);
+  f.tick(850);
   await settle();
   f.controller.update({ completedTurn: { id: 'hung', text: 'Audio que no termina.', ok: true } });
-  f.tick(15000);
+  f.tick(46200);
   assert.equal(f.controller.getState().status, 'error');
   assert.match(f.controller.getState().error, /lectura de voz se ha detenido/);
   assert.equal(f.recognizers.length, 1);
@@ -299,12 +308,12 @@ test('a hung response pauses voice without cancelling or resending an external a
   const f = fixture();
   f.start();
   f.recognizers.at(-1).final('Mensaje que espera respuesta');
-  f.tick(700);
+  f.tick(850);
   await settle();
   f.controller.update({ busy: true });
   f.tick(75000);
   assert.equal(f.controller.getState().status, 'error');
-  assert.match(f.controller.getState().error, /acción que ya autorizaste puede seguir/);
+  assert.match(f.controller.getState().error, /No se repetirá ninguna acción/);
   assert.equal(f.submissions.length, 1);
   assert.equal(f.recognizers.length, 1);
   f.controller.destroy();
@@ -371,7 +380,7 @@ test('a gesture-locked engine is unlocked before any asynchronous model response
   f.start();
   insideGesture = false;
   f.recognizers.at(-1).final('Dime cuatro');
-  f.tick(700);
+  f.tick(850);
   await settle();
   f.controller.update({ completedTurn: { id: 'unlocked', text: 'Cuatro.', ok: true } });
   assert.equal(unlocked, true);
@@ -384,7 +393,7 @@ test('waits for voiceschanged on asynchronous playback and prefers installed Spa
   const f = fixture({ voices: [] });
   f.start();
   f.recognizers.at(-1).final('Respóndeme');
-  f.tick(700);
+  f.tick(850);
   await settle();
   f.controller.update({ completedTurn: { id: 'voices', text: 'Ya tengo voz.', ok: true } });
   assert.equal(f.spoken.length, 0);
@@ -404,7 +413,7 @@ test('missing voice events have a bounded wait and use the system Spanish voice 
   const f = fixture({ voices: [] });
   f.start();
   f.recognizers.at(-1).final('Prueba');
-  f.tick(700);
+  f.tick(850);
   await settle();
   f.controller.update({ completedTurn: { id: 'system-voice', text: 'Una respuesta.', ok: true } });
   f.tick(1199);
@@ -420,7 +429,7 @@ test('blocked playback keeps the answer and a new gesture retries sound without 
   const f = fixture();
   f.start();
   f.recognizers.at(-1).final('Envíame cuatro por WhatsApp');
-  f.tick(700);
+  f.tick(850);
   await settle();
   const nativeSpeak = f.browser.speechSynthesis.speak;
   f.browser.speechSynthesis.speak = current => current.onerror({ error: 'not-allowed' });
@@ -444,7 +453,7 @@ test('does not report speaking before audio starts; silent completion and a stal
     const f = fixture();
     f.start();
     f.recognizers.at(-1).final('Una respuesta');
-    f.tick(700);
+    f.tick(850);
     await settle();
     f.browser.speechSynthesis.speak = current => {
       f.spoken.push(current);
@@ -453,8 +462,9 @@ test('does not report speaking before audio starts; silent completion and a stal
     f.controller.update({ completedTurn: { id: 'silent', text: 'Respuesta conservada.', ok: true } });
     if (!silentEnd) {
       assert.equal(f.controller.getState().status, 'starting_audio');
-      f.tick(8000);
+      f.tick(13200);
     }
+    if (silentEnd) f.tick(1200);
     assert.equal(f.controller.getState().status, 'error');
     assert.equal(f.controller.getState().lastReply, 'Respuesta conservada.');
     assert.equal(f.recognizers.length, 1);
@@ -467,7 +477,7 @@ test('replay and speaker test only play sound and do not create another model or
   const f = fixture();
   f.start();
   f.recognizers.at(-1).final('Cuánto es dos más dos');
-  f.tick(700);
+  f.tick(850);
   await settle();
   f.controller.update({ completedTurn: { id: 'replay', text: 'Dos más dos son cuatro.', ok: true } });
   f.spoken.at(-1).onend();
@@ -487,7 +497,7 @@ test('multiple speech chunks retain the answer until all finish and never reopen
   const f = fixture();
   f.start();
   f.recognizers.at(-1).final('Dame una explicación');
-  f.tick(700);
+  f.tick(850);
   await settle();
   const text = 'Una frase para escuchar. '.repeat(30);
   f.controller.update({ completedTurn: { id: 'chunks', text, ok: true } });
@@ -559,4 +569,179 @@ test('microphone permission denial pauses once and a manual retry can recover', 
   assert.equal(f.recognizers.length, 1);
   assert.equal(f.controller.getState().status, 'listening');
   f.controller.destroy();
+});
+
+test('streams stable sentences before completion without reading incomplete words or repeating the answer', async () => {
+  const f = fixture();
+  f.start();
+  f.recognizers.at(-1).final('Dime el resultado');
+  f.tick(850); await settle();
+  f.controller.update({ busy: true, liveTurn: { id: 'stream', text: 'Dos más dos son' } });
+  assert.equal(f.spoken.length, 0);
+  f.controller.update({ busy: true, liveTurn: { id: 'stream', text: 'Dos más dos son cuatro. Otra' } });
+  assert.equal(f.spoken[0].text, 'Dos más dos son cuatro.');
+  assert.equal(f.controller.getState().status, 'speaking');
+  const full = 'Dos más dos son cuatro. Otra frase.';
+  f.controller.update({ busy: true, liveTurn: { id: 'stream', text: full } });
+  f.spoken[0].onend();
+  assert.equal(f.controller.getState().status, 'thinking');
+  f.tick(1000);
+  assert.equal(f.recognizers.length, 1, 'cannot accept another turn while the server is still working');
+  f.controller.update({ busy: false, liveTurn: { id: 'stream', text: full }, completedTurn: { id: 'stream', text: full, ok: true } });
+  assert.equal(f.spoken[1].text, 'Otra frase.');
+  f.controller.update({ completedTurn: { id: 'stream', text: full, ok: true } });
+  assert.equal(f.spoken.length, 2);
+  f.spoken[1].onend(); f.tick(400);
+  assert.equal(f.controller.getState().status, 'listening');
+  assert.equal(f.submissions.length, 1);
+  f.controller.destroy();
+});
+
+test('200 successive turns, including repeated requests, speak exactly once and clean up every browser resource', async () => {
+  const f = fixture();
+  f.start();
+  for (let turn = 0; turn < 200; turn += 1) {
+    f.recognizers.at(-1).final('Cuánto es dos más dos');
+    f.tick(850); await settle();
+    f.controller.update({ busy: true, liveTurn: { id: `long-${turn}`, text: 'Son cuatro. ' } });
+    const utterance = f.spoken.at(-1);
+    utterance.onend();
+    f.controller.update({ busy: false, completedTurn: { id: `long-${turn}`, text: 'Son cuatro. ', ok: true } });
+    f.tick(400);
+    assert.equal(f.controller.getState().status, 'listening');
+    assert.equal(f.spoken.length, turn + 1);
+    assert.equal(f.submissions.length, turn + 1);
+    assert.ok(f.timers.size <= 2, 'timers cannot accumulate between turns');
+  }
+  f.controller.destroy();
+  assert.equal(f.timers.size, 0);
+  assert.equal(f.events.size, 0);
+  assert.equal(f.listeners.size, 0);
+  assert.equal(f.voiceListeners.size, 0);
+});
+
+test('temporary speaker failure automatically retries audio only, never the model or WhatsApp', async () => {
+  const f = fixture(); f.start();
+  f.recognizers.at(-1).final('Envía cuatro'); f.tick(850); await settle();
+  const nativeSpeak = f.browser.speechSynthesis.speak;
+  let attempts = 0;
+  f.browser.speechSynthesis.speak = current => {
+    attempts += 1;
+    if (attempts === 1) current.onerror({ error: 'audio-busy' });
+    else nativeSpeak(current);
+  };
+  f.controller.update({ completedTurn: { id: 'retry-audio', text: 'Mensaje enviado.', ok: true } });
+  assert.equal(f.controller.getState().status, 'recovering');
+  f.tick(400);
+  assert.equal(f.controller.getState().status, 'speaking');
+  assert.equal(attempts, 2);
+  assert.equal(f.submissions.length, 1);
+  f.spoken.at(-1).onend(); f.tick(400);
+  assert.equal(f.controller.getState().status, 'listening');
+  f.controller.destroy();
+});
+
+test('a browser that silently pauses its native speaker is resumed without enqueueing another utterance', async () => {
+  const f = fixture(); f.start();
+  f.recognizers.at(-1).final('Lee una respuesta'); f.tick(850); await settle();
+  f.controller.update({ completedTurn: { id: 'native-pause', text: 'Respuesta hablada.', ok: true } });
+  let resumed = 0;
+  f.browser.speechSynthesis.paused = true;
+  f.browser.speechSynthesis.resume = () => { resumed += 1; f.browser.speechSynthesis.paused = false; };
+  f.tick(1000);
+  assert.equal(resumed, 1);
+  assert.equal(f.spoken.length, 1);
+  f.controller.destroy();
+});
+
+test('offline and foreground recovery keeps the pending answer without repeating an external action', async () => {
+  const f = fixture(); f.start();
+  f.recognizers.at(-1).final('Envía el mensaje'); f.tick(850); await settle();
+  f.controller.update({ busy: true });
+  f.browser.navigator.onLine = false; f.events.get('offline')();
+  assert.equal(f.controller.getState().status, 'offline');
+  assert.equal(f.recognizers.at(-1).aborted, true);
+  f.browser.document.hidden = true; f.listeners.get('visibilitychange')();
+  f.controller.update({ completedTurn: { id: 'offline-answer', text: 'Solicitud completada.', ok: true } });
+  f.browser.navigator.onLine = true; f.events.get('online')();
+  assert.equal(f.spoken.length, 0, 'never speaks in a hidden tab');
+  f.browser.document.hidden = false; f.listeners.get('visibilitychange')();
+  assert.equal(f.spoken[0].text, 'Solicitud completada.');
+  assert.equal(f.submissions.length, 1);
+  f.spoken[0].onend(); f.tick(400);
+  assert.equal(f.controller.getState().status, 'listening');
+  f.controller.destroy();
+});
+
+test('manual pause is respected after Internet recovers or the tab becomes visible', async () => {
+  const f = fixture(); f.start();
+  f.recognizers.at(-1).final('Responde'); f.tick(850); await settle();
+  f.controller.pause();
+  f.controller.update({ completedTurn: { id: 'manual-paused', text: 'Respuesta pendiente.', ok: true } });
+  f.browser.document.hidden = true; f.listeners.get('visibilitychange')();
+  f.browser.navigator.onLine = false; f.events.get('offline')();
+  f.browser.navigator.onLine = true; f.events.get('online')();
+  f.browser.document.hidden = false; f.listeners.get('visibilitychange')();
+  f.tick(10000);
+  assert.equal(f.controller.getState().pauseReason, 'manual');
+  assert.equal(f.spoken.length, 0);
+  f.controller.resume();
+  assert.equal(f.spoken[0].text, 'Respuesta pendiente.');
+  assert.equal(f.submissions.length, 1);
+  f.controller.destroy();
+});
+
+test('a late real answer recovers a reply timeout without another submission', async () => {
+  const f = fixture(); f.start();
+  f.recognizers.at(-1).final('Pregunta lenta'); f.tick(850); await settle();
+  f.controller.update({ busy: true }); f.tick(75000);
+  assert.equal(f.controller.getState().pauseReason, 'reply-timeout');
+  f.controller.update({ busy: false, completedTurn: { id: 'late-result', text: 'Respuesta real recibida.', ok: true } });
+  assert.equal(f.controller.getState().status, 'speaking');
+  assert.equal(f.spoken[0].text, 'Respuesta real recibida.');
+  assert.equal(f.submissions.length, 1);
+  f.controller.destroy();
+});
+
+test('voice and pace preferences persist and only affect future utterances', async () => {
+  const voice = { lang: 'es-MX', name: 'Mi voz', voiceURI: 'my-spanish-voice' };
+  const f = fixture({ voices: [{ lang: 'es-ES' }, voice] }); f.start();
+  f.controller.configure({ voiceURI: voice.voiceURI, rate: 1.2, pauseMs: 1200 });
+  assert.equal(f.saved.size, 1);
+  f.recognizers.at(-1).final('Respuesta'); f.tick(1199);
+  assert.equal(f.submissions.length, 0);
+  f.tick(1); await settle();
+  f.controller.update({ completedTurn: { id: 'preferences', text: 'Voz elegida.', ok: true } });
+  assert.equal(f.spoken[0].voice, voice);
+  assert.equal(f.spoken[0].rate, 1.2);
+  f.controller.configure({ rate: 0.85 });
+  assert.equal(f.spoken[0].rate, 1.2);
+  f.controller.destroy();
+});
+
+test('screen wake lock is held only during an active visible conversation and released on pause and destroy', async () => {
+  const f = fixture(); let requested = 0, released = 0;
+  f.browser.navigator.wakeLock = { request: async kind => {
+    assert.equal(kind, 'screen'); requested += 1;
+    return { release: async () => { released += 1; }, addEventListener() {} };
+  } };
+  f.start(); await settle();
+  assert.equal(f.controller.getState().awake, true);
+  f.controller.pause(); await settle();
+  assert.equal(released, 1);
+  assert.equal(f.controller.getState().awake, false);
+  f.controller.resume(); await settle();
+  assert.equal(requested, 2);
+  f.controller.destroy(); await settle();
+  assert.equal(released, 2);
+});
+
+test('a wake lock resolving after close is released and cannot restart the session', async () => {
+  const f = fixture(); let allow, released = 0;
+  f.browser.navigator.wakeLock = { request: () => new Promise(resolve => { allow = resolve; }) };
+  f.start(); await settle(); f.controller.destroy();
+  allow({ release: async () => { released += 1; } }); await settle();
+  assert.equal(released, 1);
+  assert.equal(f.controller.getState().active, false);
+  assert.equal(f.timers.size, 0);
 });

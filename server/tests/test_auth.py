@@ -5,6 +5,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 import httpx
+from fastapi.responses import StreamingResponse
+from fastapi.routing import APIRoute
 
 from app.services.auth_service import AuthService, auth_service, SESSION_COOKIE
 
@@ -38,6 +40,27 @@ class AuthServiceTests(unittest.TestCase):
 
 
 class AuthMiddlewareTests(unittest.IsolatedAsyncioTestCase):
+    @unittest.skipIf(app is None, "FastAPI dependencies are not installed")
+    async def test_private_sse_forbids_proxy_buffering_and_remains_owner_only(self):
+        async def events():
+            yield 'data: {"type":"content.delta","delta":"Cuatro."}\n\n'
+        async def controlled_stream():
+            return StreamingResponse(events(), media_type="text/event-stream")
+        route = APIRoute("/api/v1/test-stream", controlled_stream, methods=["GET"])
+        app.router.routes.append(route)
+        try:
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1") as client:
+                anonymous = await client.get("/api/v1/test-stream")
+                self.assertEqual(anonymous.status_code, 401)
+                response = await client.get("/api/v1/test-stream", headers={"Authorization": "Bearer " + auth_service.token})
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.headers["Cache-Control"], "no-store, no-transform")
+                self.assertIn("Cuatro.", response.text)
+                normal = await client.get("/api/v1/models", headers={"Authorization": "Bearer " + auth_service.token})
+                self.assertEqual(normal.headers["Cache-Control"], "no-store")
+        finally:
+            app.router.routes.remove(route)
+
     @unittest.skipIf(app is None, "FastAPI dependencies are not installed")
     async def test_loopback_cannot_bootstrap_and_token_login_issues_distinct_session(self):
         transport = httpx.ASGITransport(app=app, client=("127.0.0.1", 43123))

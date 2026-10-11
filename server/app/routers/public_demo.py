@@ -80,4 +80,4 @@ async def public_chat(data: PublicChat):
         finally:
             active_requests -= 1
 
-    return EventSourceResponse(generate())
+    return EventSourceResponse(generate(), headers={"Cache-Control": "no-store, no-transform"})

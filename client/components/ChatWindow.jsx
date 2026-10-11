@@ -86,6 +86,7 @@ export default function ChatWindow({
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const [voiceActivity, setVoiceActivity] = useState({ state: "idle", active: false });
   const [completedTurn, setCompletedTurn] = useState(null);
+  const [liveTurn, setLiveTurn] = useState(null);
   const [streamError, setStreamError] = useState("");
   const [turnProgress, setTurnProgress] = useState("");
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -115,6 +116,7 @@ export default function ChatWindow({
     nearBottomRef.current = true;
     setShowJumpToLatest(false);
     setCompletedTurn(null);
+    setLiveTurn(null);
     setStreamError("");
     setTurnProgress("");
     setIsStreaming(false);
@@ -286,6 +288,7 @@ export default function ChatWindow({
     nearBottomRef.current = true;
     setShowJumpToLatest(false);
     setCompletedTurn(null);
+    setLiveTurn(null);
     setStreamError("");
     setTurnProgress("Preparando tu respuesta…");
     setIsStreaming(true);
@@ -349,6 +352,7 @@ export default function ChatWindow({
             if (epoch !== turnEpochRef.current) return;
             if (event.type === "turn.started") {
               streamingMsgId = event.botMsgId;
+              setLiveTurn({ id: streamingMsgId, text: "" });
               setStreamingMessageId(event.botMsgId);
               setMessages((prev) => [
                 ...prev,
@@ -391,6 +395,7 @@ export default function ChatWindow({
               }
             } else if (event.type === "content.delta") {
               responseText += event.delta;
+              setLiveTurn({ id: streamingMsgId, text: responseText });
               setMessages((prev) =>
                 prev.map((msg) =>
                   msg.id === streamingMsgId
@@ -677,7 +682,7 @@ export default function ChatWindow({
             />
             <div className="composer-tools">
               <div className="composer-tools-left">
-                <HandsFreeVoice botId={bot?.id} botName={botTitle} disabled={!bot || historyLoading} onSubmit={(text) => handleSendMessage(null, text)} busy={isStreaming} approvalPending={pendingApprovals.length > 0} completedTurn={completedTurn} streamError={streamError} onActivityChange={handleVoiceActivity} />
+                <HandsFreeVoice botId={bot?.id} botName={botTitle} disabled={!bot || historyLoading} onSubmit={(text) => handleSendMessage(null, text)} busy={isStreaming} approvalPending={pendingApprovals.length > 0} liveTurn={liveTurn} completedTurn={completedTurn} streamError={streamError} onActivityChange={handleVoiceActivity} />
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}

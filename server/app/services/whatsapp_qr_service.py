@@ -212,7 +212,7 @@ class WhatsAppQRService:
             if config != self.config():
                 raise CommunicationError("La conexión o el Dot han cambiado. Escribe de nuevo en WhatsApp.")
             peer_hash = hashlib.sha256(event["peer"].encode()).hexdigest()[:16]
-            options = {"search_request": event["text"]} if event.get("media", {}).get("kind") == "image" else {}
+            options = {"search_request": event["text"], "image_understood": True} if event.get("media", {}).get("kind") == "image" else {}
             reply = await self.communications.answer(config["bot_id"], text, "whatsapp-qr-" + config["bot_id"] + "-" + peer_hash, **options)
             if config != self.config():
                 raise CommunicationError("La conexión o el Dot han cambiado. Escribe de nuevo en WhatsApp.")

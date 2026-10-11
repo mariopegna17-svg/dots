@@ -87,7 +87,10 @@ async def require_authentication(request: Request, call_next):
         )
     request.state.user = user
     response = await call_next(request)
-    response.headers["Cache-Control"] = "no-store"
+    # Next's compression proxy buffers small SSE chunks unless transformations
+    # are forbidden. Preserve immediate text/voice delivery and private caching.
+    streaming = response.headers.get("content-type", "").startswith("text/event-stream")
+    response.headers["Cache-Control"] = "no-store, no-transform" if streaming else "no-store"
     return response
 
 # Wrap authentication so allowed browser clients can read 401 responses.

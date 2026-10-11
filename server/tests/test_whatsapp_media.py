@@ -75,11 +75,96 @@ class MediaTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(request.url.host, 'integrate.api.nvidia.com')
         self.assertEqual(request.headers['Authorization'], 'Bearer test-nvidia-key')
         self.assertEqual(body['model'], 'meta/llama-3.2-11b-vision-instruct')
+        self.assertTrue(body['stream'])
+        self.assertLessEqual(body['max_tokens'], 384)
         self.assertIn('¿De qué color es?', body['messages'][0]['content'][0]['text'])
         self.assertTrue(body['messages'][0]['content'][1]['image_url']['url'].startswith('data:image/jpeg;base64,'))
         self.assertIn('Un cuadrado rojo.', text)
         self.assertIn('¿De qué color es?', text)
         self.assertNotIn('base64', text)
+
+    async def test_vision_reads_nvidia_stream_and_requires_a_complete_real_description(self):
+        picture = io.BytesIO()
+        Image.new('RGB', (32, 32), 'blue').save(picture, format='PNG')
+        events = [
+            {'choices': [{'delta': {'content': 'Una figura '}, 'finish_reason': None}]},
+            {'choices': [{'delta': {'content': 'azul.'}, 'finish_reason': 'stop'}]},
+        ]
+        captured = []
+        async def handler(request):
+            captured.append(request)
+            return httpx.Response(200, headers={'Content-Type': 'text/event-stream'}, text=''.join('data: ' + json.dumps(event) + '\n\n' for event in events) + 'data: [DONE]\n\n')
+        original = httpx.AsyncClient
+        with patch('app.services.whatsapp_media.httpx.AsyncClient', lambda **kwargs: original(transport=httpx.MockTransport(handler), **kwargs)):
+            result = await self.media.understand({'kind': 'image'}, picture.getvalue(), 'Describe la figura')
+        self.assertIn('Una figura azul.', result)
+        self.assertEqual(len(captured), 1)
+
+    async def test_vision_timeout_retries_a_smaller_photo_once_without_blame_or_secrets(self):
+        import base64
+        picture = io.BytesIO()
+        Image.new('RGB', (1200, 900), 'green').save(picture, format='PNG')
+        sizes = []
+        async def handler(request):
+            payload = json.loads(request.content)
+            image = payload['messages'][0]['content'][1]['image_url']['url'].split(',', 1)[1]
+            with Image.open(io.BytesIO(base64.b64decode(image))) as encoded:
+                sizes.append(encoded.size)
+            if len(sizes) == 1:
+                raise httpx.ReadTimeout('nvapi-secret must stay private', request=request)
+            return httpx.Response(200, json={'choices': [{'message': {'content': 'La foto es verde.'}}]})
+        original = httpx.AsyncClient
+        with patch('app.services.whatsapp_media.httpx.AsyncClient', lambda **kwargs: original(transport=httpx.MockTransport(handler), **kwargs)):
+            result = await self.media.understand({'kind': 'image'}, picture.getvalue())
+        self.assertIn('verde', result)
+        self.assertEqual(len(sizes), 2)
+        self.assertLess(max(sizes[1]), max(sizes[0]))
+
+    async def test_vision_auth_and_quota_fail_fast_and_report_the_actual_failure(self):
+        picture = io.BytesIO()
+        Image.new('RGB', (16, 16), 'red').save(picture, format='PNG')
+        original = httpx.AsyncClient
+        for status, diagnostic in [(401, 'rechazado la clave'), (403, 'no tiene acceso'), (404, 'no está disponible'), (429, 'límite')]:
+            calls = []
+            async def handler(request):
+                calls.append(request)
+                return httpx.Response(status, json={'error': 'nvapi-secret-debug'})
+            with patch('app.services.whatsapp_media.httpx.AsyncClient', lambda **kwargs: original(transport=httpx.MockTransport(handler), **kwargs)):
+                with self.assertRaisesRegex(CommunicationError, diagnostic) as caught:
+                    await self.media.understand({'kind': 'image'}, picture.getvalue())
+            self.assertEqual(len(calls), 1)
+            self.assertNotIn('secret', str(caught.exception))
+
+    async def test_vision_stalled_and_truncated_streams_never_claim_to_have_seen_the_photo(self):
+        picture = io.BytesIO()
+        Image.new('RGB', (16, 16), 'red').save(picture, format='PNG')
+        original = httpx.AsyncClient
+        for timeout in [True, False]:
+            calls = []
+            async def handler(request):
+                calls.append(request)
+                if timeout: raise httpx.ReadTimeout('private-upstream-details', request=request)
+                return httpx.Response(200, headers={'Content-Type': 'text/event-stream'}, text='data: {"choices":[{"delta":{"content":"Un fragmento"}}]}\n\n')
+            with patch('app.services.whatsapp_media.httpx.AsyncClient', lambda **kwargs: original(transport=httpx.MockTransport(handler), **kwargs)):
+                with self.assertRaises(CommunicationError) as caught:
+                    await self.media.understand({'kind': 'image'}, picture.getvalue())
+            self.assertEqual(len(calls), 2)
+            self.assertNotIn('private', str(caught.exception))
+            self.assertNotIn('clave', str(caught.exception))
+
+    async def test_photo_observations_reach_selected_dot_and_one_reply_is_sent(self):
+        event = {**self.event, 'media': {'kind': 'image', 'mime': 'image/jpeg', 'size': 6}, 'text': '¿Qué color ves?'}
+        async def provider(**kwargs):
+            self.assertIn('foto de este mensaje ya se ha analizado', kwargs['system_prompt'])
+            self.assertIn('círculo azul', kwargs['messages'][-1]['content'])
+            yield {'type': 'content.delta', 'delta': 'Es un círculo azul.'}
+            yield {'type': 'turn.completed', 'ok': True}
+        with patch.object(self.service, 'download_media', AsyncMock(return_value=b'binary')), patch.object(self.service.media, 'understand', AsyncMock(return_value='[Foto recibida] Un círculo azul.')), patch('app.services.communication_service.provider_service.stream_chat_completion', provider):
+            await self.service.handle(event)
+            await self.service.handle(event)
+        replies = [call for call in self.service.request.await_args_list if call.args[1] == '/reply']
+        self.assertEqual(len(replies), 1)
+        self.assertEqual(replies[0].args[2]['text'], 'Es un círculo azul.')
 
     async def test_audio_conversion_really_decodes_wav_to_mono_16khz_pcm(self):
         pcm = await decode_audio(wav())

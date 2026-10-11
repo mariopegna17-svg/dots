@@ -5,7 +5,7 @@ import { createHandsFreeVoice } from "../lib/handsFreeVoice.mjs";
 
 const initialState = { supported: null, active: false, status: "idle", transcript: "", error: "", paused: false };
 
-export default function useHandsFreeVoice({ botId, onSubmit, busy, approvalPending, completedTurn, streamError, onActivityChange }) {
+export default function useHandsFreeVoice({ botId, onSubmit, busy, approvalPending, liveTurn, completedTurn, streamError, onActivityChange }) {
   const [state, setState] = useState(initialState);
   const controllerRef = useRef(null);
   const callbacksRef = useRef({ onSubmit, onActivityChange });
@@ -29,8 +29,8 @@ export default function useHandsFreeVoice({ botId, onSubmit, busy, approvalPendi
   }, [botId]);
 
   useEffect(() => {
-    controllerRef.current?.update({ busy, approvalPending, completedTurn, streamError });
-  }, [busy, approvalPending, completedTurn, streamError, botId]);
+    controllerRef.current?.update({ busy, approvalPending, liveTurn, completedTurn, streamError });
+  }, [busy, approvalPending, liveTurn, completedTurn, streamError, botId]);
 
   const start = useCallback(() => controllerRef.current?.start(), []);
   const stop = useCallback(() => controllerRef.current?.stop(), []);
@@ -39,5 +39,7 @@ export default function useHandsFreeVoice({ botId, onSubmit, busy, approvalPendi
   const sendNow = useCallback(() => controllerRef.current?.sendNow(), []);
   const testSpeaker = useCallback(() => controllerRef.current?.testSpeaker(), []);
   const replay = useCallback(() => controllerRef.current?.replay(), []);
-  return { ...state, start, stop, resume, interrupt, sendNow, testSpeaker, replay };
+  const pause = useCallback(() => controllerRef.current?.pause(), []);
+  const configure = useCallback(value => controllerRef.current?.configure(value), []);
+  return { ...state, start, stop, resume, pause, configure, interrupt, sendNow, testSpeaker, replay };
 }
